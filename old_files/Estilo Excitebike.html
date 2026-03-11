@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Motocross - 32-Bit Grand Prix</title>
+    <style>
+        :root {
+            --dirt-color: #c27c36;
+            --grass-color: #4a9e1d;
+            --ui-accent: #00d4ff;
+            --font-main: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: var(--font-main);
+            color: white;
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 480px;
+            background-color: #000;
+            border: 2px solid #444;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        }
+
+        #canvas {
+            display: block;
+        }
+
+        #ui {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            height: 70px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 10px;
+            z-index: 5;
+        }
+
+        .stat-box { text-align: center; flex: 1; }
+        .stat-label { font-size: 10px; color: var(--ui-accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+        .stat-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+        #temp-bar-outer { width: 100px; height: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); margin: 0 auto; }
+        #temp-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #00ff88, #f1c40f, #ff3e3e); transition: width 0.1s; }
+
+        #message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            padding: 30px;
+            text-align: center;
+            border-radius: 20px;
+            border: 1px solid var(--ui-accent);
+            display: none;
+            z-index: 20;
+            min-width: 420px;
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.3);
+        }
+
+        h2 { margin: 0; color: var(--ui-accent); font-size: 26px; letter-spacing: 3px; }
+        .points-earned { color: #00ff88; font-size: 1.2em; font-weight: bold; margin: 10px 0; }
+        
+        #player-setup {
+            margin: 15px 0;
+        }
+
+        #player-name-input {
+            background: #222;
+            color: white;
+            border: 2px solid #444;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: inherit;
+            text-align: center;
+            font-size: 1.1em;
+            width: 200px;
+            margin-top: 5px;
+            outline: none;
+        }
+        #player-name-input:focus {
+            border-color: var(--ui-accent);
+        }
+
+        #next-btn {
+            background: var(--ui-accent);
+            color: black;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 15px;
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+        #next-btn:hover { transform: scale(1.05); }
+
+        #mobile-controls {
+            display: none;
+            position: absolute;
+            bottom: 100px;
+            width: 100%;
+            justify-content: space-between;
+            padding: 0 30px;
+            box-sizing: border-box;
+            pointer-events: none;
+        }
+
+        .btn {
+            width: 60px; height: 60px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: auto; color: white; font-weight: bold;
+        }
+
+        @media (max-width: 850px) {
+            #game-container { width: 100vw; height: 60vw; }
+            #mobile-controls { display: flex; }
+            #ui { height: 50px; bottom: 10px; padding: 0 5px; }
+            .stat-value { font-size: 14px; }
+            #temp-bar-outer { width: 60px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="canvas"></canvas>
+        
+        <div id="message-box">
+            <h2 id="msg-title">MOTOCROSS 32-BIT</h2>
+            
+            <!-- Configuração do Nome do Jogador -->
+            <div id="player-setup">
+                <p style="font-size: 0.9em; color: #aaa; margin-bottom: 5px;">Introduz o teu nome:</p>
+                <input type="text" id="player-name-input" maxlength="12" placeholder="PILOTO">
+            </div>
+
+            <p id="level-name" style="color: gold; font-weight: bold; margin: 5px 0;"></p>
+            <div id="final-stats" style="display: none;">
+                <p style="margin: 5px 0;"><span id="player-final-name" style="color:var(--ui-accent)">-</span>: <span id="rank-val" style="font-size: 1.5em; font-weight: 800;">-</span></p>
+                <div id="points-display" class="points-earned"></div>
+                <p style="color: #aaa;">Pontuação Total: <span id="total-score-val" style="color: white;">0</span></p>
+            </div>
+            <p id="msg-text" style="color: #ccc; margin: 15px 0;">Prime Enter para Iniciar</p>
+            <button id="next-btn" style="display:none;">PRÓXIMA FASE</button>
+            <p id="controls-hint" style="font-size: 0.7em; color: #555; margin-top:10px;">SETAS: Conduzir | Z: Nitro | X: Salto</p>
+        </div>
+
+        <div id="mobile-controls">
+            <div style="display: flex; gap: 15px;">
+                <div class="btn" id="btn-up">▲</div>
+                <div class="btn" id="btn-down">▼</div>
+            </div>
+            <div style="display: flex; gap: 15px;">
+                <div class="btn" id="btn-turbo">N</div>
+                <div class="btn" id="btn-jump">J</div>
+            </div>
+        </div>
+
+        <div id="ui">
+            <div class="stat-box">
+                <div class="stat-label" id="ui-level-label">Fase 1</div>
+                <div id="time-val" class="stat-value">00:00:00</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Motor</div>
+                <div id="temp-bar-outer">
+                    <div id="temp-bar"></div>
+                </div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Pontos</div>
+                <div id="score-val" class="stat-value">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Restante</div>
+                <div id="dist-val" class="stat-value">0m</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const Sound = (() => {
+            let ctx = null;
+            let engineOsc = null, engineGain = null;
+            let nitroOsc = null, nitroGain = null;
+            const init = () => {
+                if (ctx) return;
+                ctx = new (window.AudioContext || window.webkitAudioContext)();
+                engineOsc = ctx.createOscillator(); engineOsc.type = 'sawtooth';
+                engineGain = ctx.createGain(); engineGain.gain.setValueAtTime(0, ctx.currentTime);
+                const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.setValueAtTime(400, ctx.currentTime);
+                engineOsc.connect(filter); filter.connect(engineGain); engineGain.connect(ctx.destination);
+                engineOsc.start();
+                nitroOsc = ctx.createOscillator(); nitroOsc.type = 'triangle';
+                nitroGain = ctx.createGain(); nitroGain.gain.setValueAtTime(0, ctx.currentTime);
+                nitroOsc.connect(nitroGain); nitroGain.connect(ctx.destination); nitroOsc.start();
+            };
+            const playJump = () => { if(!ctx) return; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(150, ctx.currentTime); o.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1); g.gain.setValueAtTime(0.1, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2); o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.2); };
+            const playLand = () => { if(!ctx) return; const n = ctx.createBufferSource(), b = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate), d = b.getChannelData(0); for(let i=0; i<d.length; i++) d[i] = Math.random()*2-1; n.buffer = b; const g = ctx.createGain(); g.gain.setValueAtTime(0.05, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1); n.connect(g); g.connect(ctx.destination); n.start(); };
+            const playExplosion = () => { if(!ctx) return; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'square'; o.frequency.setValueAtTime(100, ctx.currentTime); o.frequency.linearRampToValueAtTime(10, ctx.currentTime + 0.5); g.gain.setValueAtTime(0.2, ctx.currentTime); g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5); o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.5); };
+            const updateEngine = (s, n, h) => { if(!ctx) return; if(h){ engineGain.gain.setTargetAtTime(0, ctx.currentTime, 0.1); nitroGain.gain.setTargetAtTime(0, ctx.currentTime, 0.1); return; } const f = 40 + (s*15); engineOsc.frequency.setTargetAtTime(f, ctx.currentTime, 0.1); engineGain.gain.setTargetAtTime(0.1, ctx.currentTime, 0.1); if(n){ nitroOsc.frequency.setTargetAtTime(f*2, ctx.currentTime, 0.1); nitroGain.gain.setTargetAtTime(0.05, ctx.currentTime, 0.1); } else { nitroGain.gain.setTargetAtTime(0, ctx.currentTime, 0.1); } };
+            const stopAll = () => { if(engineGain) engineGain.gain.setTargetAtTime(0, ctx.currentTime, 0.1); if(nitroGain) nitroGain.gain.setTargetAtTime(0, ctx.currentTime, 0.1); };
+            return { init, playJump, playLand, playExplosion, updateEngine, stopAll, resume: () => ctx && ctx.resume() };
+        })();
+
+        const LEVELS = [
+            { name: "Pôr-do-sol Clássico", sky: ["#1a2a6c", "#b21f1f", "#fdbb2d"], grass: "#4a9e1d", dirt: "#c27c36", distance: 40000, difficulty: 1.0 },
+            { name: "Cidade Noturna (Neon)", sky: ["#000428", "#004e92", "#5c258d"], grass: "#1a1a2e", dirt: "#2d3436", distance: 60000, difficulty: 1.2 },
+            { name: "Deserto Árido", sky: ["#ff9966", "#ff5e62", "#ffcc33"], grass: "#edc9af", dirt: "#8b4513", distance: 80000, difficulty: 1.4 },
+            { name: "Gelo Ártico", sky: ["#83a4d4", "#b6fbff", "#ffffff"], grass: "#e1f5fe", dirt: "#81d4fa", distance: 100000, difficulty: 1.6 },
+            { name: "Vulcão Infernal", sky: ["#141e30", "#243b55", "#ff4b2b"], grass: "#2c3e50", dirt: "#3d3d3d", distance: 120000, difficulty: 1.8 }
+        ];
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const msgBox = document.getElementById('message-box');
+        const msgTitle = document.getElementById('msg-title');
+        const msgText = document.getElementById('msg-text');
+        const levelNameDisplay = document.getElementById('level-name');
+        const nextBtn = document.getElementById('next-btn');
+        const playerNameInput = document.getElementById('player-name-input');
+        const playerSetup = document.getElementById('player-setup');
+        const playerFinalName = document.getElementById('player-final-name');
+        
+        const WIDTH = 800, HEIGHT = 480;
+        canvas.width = WIDTH; canvas.height = HEIGHT;
+        const LANES = 4, LANE_HEIGHT = 48, TRACK_TOP = 180;
+        
+        let currentLevelIndex = 0;
+        let totalScore = 0;
+        let gameActive = false, gameOver = false, podiumActive = false;
+        let frameCount = 0, startTime = 0, currentTime = 0, screenShake = 0;
+        const keys = {};
+        
+        const player = { id: 'PILOTO', color: '#ff2d2d', secondary: '#7a0000', lane: 1, x: 150, y: 0, targetY: 0, speed: 0, maxSpeed: 5.2, turboSpeed: 9.2, acceleration: 0.12, friction: 0.04, temp: 0, isOverheated: false, isJumping: false, jumpY: 0, jumpVelocity: 0, rotation: 0, suspension: 0, distTravelled: 0, finished: false };
+        let bots = [], obstacles = [], trackDecor = [], particles = [], speedLines = [], podiumFinishers = [];
+
+        function init(levelIdx = 0, resetScore = false) {
+            currentLevelIndex = levelIdx;
+            
+            // Atribuir o nome do jogador no início do campeonato
+            if (resetScore) {
+                totalScore = 0;
+                player.id = playerNameInput.value.trim().toUpperCase() || 'PILOTO';
+                playerSetup.style.display = 'none'; // Esconder setup após começar
+            }
+            
+            const config = LEVELS[currentLevelIndex];
+            Sound.init(); Sound.resume();
+            obstacles = []; trackDecor = []; particles = []; speedLines = []; screenShake = 0; podiumActive = false; podiumFinishers = [];
+            
+            player.lane = 1; player.speed = 0; player.temp = 0; player.isOverheated = false; player.isJumping = false; player.jumpY = 0; player.rotation = 0; player.suspension = 0; player.distTravelled = 0; player.finished = false;
+            
+            const botThemes = [{p: '#00ccff', s: '#004466'}, {p: '#ffcc00', s: '#665500'}, {p: '#00ff66', s: '#006622'}];
+            bots = botThemes.map((theme, i) => ({ id: `CPU ${i+1}`, color: theme.p, secondary: theme.s, lane: i === 1 ? 0 : (i === 0 ? 2 : 3), x: 100 + (Math.random() * 100), y: 0, targetY: 0, speed: 0, baseMaxSpeed: (5.0 + (Math.random() * 0.8)) * config.difficulty, acceleration: (0.09 + (Math.random() * 0.05)) * config.difficulty, isJumping: false, jumpY: 0, jumpVelocity: 0, rotation: 0, suspension: 0, distTravelled: 0, finished: false }));
+
+            frameCount = 0; gameActive = true; gameOver = false;
+            startTime = Date.now();
+            msgBox.style.display = 'none';
+            nextBtn.style.display = 'none';
+            document.getElementById('final-stats').style.display = 'none';
+            document.getElementById('ui-level-label').innerText = `Fase ${currentLevelIndex + 1}`;
+            document.getElementById('score-val').innerText = totalScore;
+            levelNameDisplay.innerText = config.name;
+
+            for(let i=0; i<35; i++) trackDecor.push({ x: i * 70 + Math.random() * 40, y: 30 + Math.random() * 110, scale: 0.5 + Math.random(), type: Math.random() > 0.6 ? 'tree' : 'rock' });
+        }
+
+        const handleTransition = () => {
+            if (gameOver) {
+                const finishers = [player, ...bots].sort((a,b) => b.distTravelled - a.distTravelled);
+                if (finishers[0].id === player.id && currentLevelIndex < LEVELS.length - 1) {
+                    init(currentLevelIndex + 1);
+                } else {
+                    playerSetup.style.display = 'block'; // Mostrar setup se reiniciar tudo
+                    init(0, true);
+                }
+            } else init(0, true);
+        };
+
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            // Se o utilizador estiver a escrever no input, não iniciar o jogo com Enter
+            if(e.code === 'Enter' && (!gameActive || gameOver)) {
+                if(document.activeElement !== playerNameInput) handleTransition();
+            }
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+        nextBtn.addEventListener('click', handleTransition);
+
+        function setupBtn(id, code) { const btn = document.getElementById(id); if(!btn) return; btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[code] = true; Sound.resume(); }); btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[code] = false; }); }
+        setupBtn('btn-up', 'ArrowUp'); setupBtn('btn-down', 'ArrowDown'); setupBtn('btn-turbo', 'KeyZ'); setupBtn('btn-jump', 'KeyX');
+
+        function createPart(x, y, type) { const config = LEVELS[currentLevelIndex]; if(type === 'dust') particles.push({ x, y, vx: -2-Math.random()*3, vy: -Math.random()*1, life: 1, s: 4+Math.random()*6, c: config.dirt }); }
+
+        function update() {
+            if(!gameActive) { Sound.stopAll(); return; }
+            if(podiumActive) return;
+            if(screenShake > 0) screenShake *= 0.9;
+            const config = LEVELS[currentLevelIndex];
+
+            // JOGADOR
+            if(!player.finished) {
+                if(keys['ArrowUp'] && player.lane > 0 && frameCount % 12 === 0) player.lane--;
+                if(keys['ArrowDown'] && player.lane < LANES - 1 && frameCount % 12 === 0) player.lane++;
+                player.targetY = TRACK_TOP + (player.lane * LANE_HEIGHT);
+                player.y += (player.targetY - player.y) * 0.18;
+                const isTurbo = keys['KeyZ'] && !player.isOverheated;
+                let tMax = isTurbo ? player.turboSpeed : player.maxSpeed;
+                if(player.isOverheated) tMax = 0;
+                if(player.speed < tMax) player.speed += player.acceleration; else if(player.speed > tMax) player.speed -= player.friction;
+                if(player.speed < 0.1) player.speed = 0;
+                Sound.updateEngine(player.speed, isTurbo, player.isOverheated);
+                if(isTurbo) { player.temp += 0.5; if(frameCount % 2 === 0) speedLines.push({ x: WIDTH, y: Math.random()*HEIGHT, l: 40+Math.random()*60 }); } else { player.temp -= 0.35; }
+                if(player.temp > 100) { player.temp = 100; player.isOverheated = true; screenShake = 15; Sound.playExplosion(); }
+                if(player.temp < 0) { player.temp = 0; player.isOverheated = false; }
+                if(keys['KeyX'] && !player.isJumping && !player.isOverheated) { player.isJumping = true; player.jumpVelocity = -12; Sound.playJump(); }
+                handleJump(player);
+                player.distTravelled += player.speed;
+                if(player.distTravelled >= config.distance) player.finished = true;
+                if(player.speed > 2 && !player.isJumping && frameCount % 2 === 0) createPart(player.x - 20, player.y + 15, 'dust');
+            } else { player.speed *= 0.97; Sound.updateEngine(player.speed, false, false); }
+
+            // BOTS
+            bots.forEach(bot => {
+                if(!bot.finished) {
+                    if(bot.speed < bot.baseMaxSpeed) bot.speed += bot.acceleration;
+                    bot.targetY = TRACK_TOP + (bot.lane * LANE_HEIGHT);
+                    bot.y += (bot.targetY - bot.y) * 0.1;
+                    const upcomingRamp = obstacles.find(o => o.type === 'ramp' && Math.abs(o.y - bot.y) < 20 && o.x - bot.x > 0 && o.x - bot.x < 80);
+                    if(upcomingRamp && !bot.isJumping) { bot.isJumping = true; bot.jumpVelocity = -13; }
+                    obstacles.forEach(o => {
+                        if(Math.abs(o.x - bot.x) < 35 && Math.abs(o.y - bot.y) < 22) {
+                            if(o.type === 'ramp' && !bot.isJumping) { bot.isJumping = true; bot.jumpVelocity = -13; }
+                            else if(o.type === 'mud' && !bot.isJumping) { bot.speed *= 0.75; if(frameCount % 10 === 0) createPart(bot.x, bot.y + 10, 'dust'); }
+                        }
+                    });
+                    handleJump(bot);
+                    bot.distTravelled += bot.speed;
+                    if(bot.distTravelled >= config.distance) bot.finished = true;
+                    bot.x = 150 + (bot.distTravelled - player.distTravelled);
+                    if(bot.speed > 2 && !bot.isJumping && frameCount % 4 === 0) createPart(bot.x - 20, bot.y + 15, 'dust');
+                } else { bot.speed *= 0.98; bot.x = 150 + (bot.distTravelled - player.distTravelled); }
+            });
+
+            if(frameCount % Math.max(40, Math.floor(90 / config.difficulty)) === 0 && player.distTravelled < config.distance - 2000) obstacles.push({ x: WIDTH + 200, y: TRACK_TOP + (Math.floor(Math.random()*LANES)*LANE_HEIGHT), type: Math.random() > 0.6 ? 'ramp' : 'mud' });
+            obstacles.forEach(o => { o.x -= player.speed; if(Math.abs(o.x - player.x) < 40 && Math.abs(o.y - player.y) < 25) { if(o.type === 'ramp' && !player.isJumping) { player.isJumping = true; player.jumpVelocity = -15; Sound.playJump(); } else if(o.type === 'mud' && !player.isJumping) player.speed *= 0.8; } });
+            obstacles = obstacles.filter(o => o.x > -300);
+            particles.forEach(p => { p.x += p.vx - (player.speed*0.7); p.y += p.vy; p.life -= 0.025; p.s *= 0.97; });
+            particles = particles.filter(p => p.life > 0);
+            speedLines.forEach(l => { l.x -= player.speed * 2.5; });
+            speedLines = speedLines.filter(l => l.x > -100);
+            trackDecor.forEach(d => { d.x -= player.speed * 0.45; if(d.x < -200) d.x = WIDTH + 200; });
+
+            if(player.finished && bots.every(b => b.finished)) endGame();
+            frameCount++; updateUI();
+        }
+
+        function handleJump(e) { if(e.isJumping) { e.jumpY += e.jumpVelocity; e.jumpVelocity += 0.58; e.rotation = e.jumpVelocity * 0.045; if(e.jumpY >= 0) { e.jumpY = 0; e.isJumping = false; e.rotation = 0; e.suspension = 8; if(e.id === player.id) { screenShake = 6; Sound.playLand(); } for(let i=0; i<8; i++) createPart(e.x, e.y+15, 'dust'); } } if(e.suspension > 0) e.suspension *= 0.85; }
+
+        function endGame() {
+            gameActive = false; gameOver = true; Sound.stopAll();
+            const all = [player, ...bots].sort((a,b) => b.distTravelled - a.distTravelled);
+            const r = all.findIndex(p => p.id === player.id) + 1;
+            
+            const rankPoints = [100, 70, 50, 30];
+            const basePoints = rankPoints[r-1] || 0;
+            const timeBonus = Math.max(0, Math.floor(200 - (currentTime / 1000)));
+            const phaseScore = basePoints + timeBonus;
+            totalScore += phaseScore;
+
+            playerFinalName.innerText = player.id;
+            document.getElementById('rank-val').innerText = r + 'º LUGAR';
+            document.getElementById('rank-val').style.color = r === 1 ? '#00ffcc' : '#fff';
+            document.getElementById('points-display').innerText = `+${phaseScore} Pontos!`;
+            document.getElementById('total-score-val').innerText = totalScore;
+            document.getElementById('score-val').innerText = totalScore;
+            
+            nextBtn.style.display = 'inline-block';
+
+            if (currentLevelIndex === LEVELS.length - 1) {
+                podiumActive = true;
+                podiumFinishers = all.slice(0, 3);
+                msgTitle.innerText = "GRAND PRIX FINALIZADO";
+                msgText.innerText = "Vê o Pódio Final!";
+                nextBtn.innerText = "REINICIAR CAMPEONATO";
+            } else if (r === 1) {
+                msgTitle.innerText = "QUALIFICADO!";
+                msgText.innerText = "Venceste a Fase!";
+                nextBtn.innerText = "PRÓXIMA FASE";
+            } else {
+                msgTitle.innerText = "DERROTA";
+                msgText.innerText = "Precisas do 1º lugar para avançar.";
+                nextBtn.innerText = "TENTAR NOVAMENTE";
+            }
+            document.getElementById('final-stats').style.display = 'block';
+            msgBox.style.display = 'block';
+        }
+
+        function updateUI() { const config = LEVELS[currentLevelIndex]; currentTime = Date.now() - startTime; document.getElementById('time-val').innerText = new Date(currentTime).toISOString().substr(14, 8).replace('.', ':'); document.getElementById('dist-val').innerText = Math.max(0, Math.floor((config.distance - player.distTravelled)/100)) + 'm'; document.getElementById('temp-bar').style.width = player.temp + '%'; }
+
+        function drawBiker(e, customX, customY) {
+            const bx = customX !== undefined ? customX : e.x;
+            const by = customY !== undefined ? customY : e.y + e.jumpY;
+            const shadowX = bx, shadowY = (customY !== undefined ? customY : e.y) + 15;
+            const s = ctx.createRadialGradient(shadowX, shadowY, 2, shadowX, shadowY, 25);
+            s.addColorStop(0, 'rgba(0,0,0,0.4)'); s.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = s; ctx.beginPath(); ctx.ellipse(shadowX, shadowY, 25, 8, 0, 0, Math.PI*2); ctx.fill();
+            ctx.save(); ctx.translate(bx, by); ctx.rotate(customX ? 0 : e.rotation + (e.speed/10)*0.15);
+            const dW = (x) => { ctx.save(); ctx.translate(x, 10 + e.suspension); ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill(); const g = ctx.createLinearGradient(-10,-10,10,10); g.addColorStop(0,'#666'); g.addColorStop(0.5,'#eee'); g.addColorStop(1,'#444'); ctx.strokeStyle = g; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI*2); ctx.stroke(); ctx.restore(); };
+            dW(-18); dW(18); ctx.fillStyle = '#333'; ctx.fillRect(-12, -2, 24, 10);
+            ctx.fillStyle = (e.isOverheated && frameCount % 8 < 4) ? '#fff' : e.color;
+            ctx.beginPath(); ctx.moveTo(-25,-12); ctx.bezierCurveTo(0,-18,10,-18,28,0); ctx.lineTo(10,5); ctx.lineTo(-20,5); ctx.closePath(); ctx.fill();
+            ctx.save(); ctx.translate(0, -e.suspension*0.5); ctx.fillStyle = '#999'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-8,-28,16,20,4) : ctx.fillRect(-8,-28,16,20); ctx.fill(); ctx.strokeStyle = '#ddd'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(0,-22); ctx.lineTo(18,-12); ctx.stroke(); ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(5,-36,10,0,Math.PI*2); ctx.fill(); ctx.fillStyle = e.color; ctx.fillRect(-2,-43,14,4); ctx.restore();
+            
+            // Desenhar nome em cima do piloto se for o jogador
+            if(e.id === player.id && !customX) {
+                ctx.fillStyle = "white"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center";
+                ctx.fillText(e.id, 0, -50);
+            }
+
+            if(!customX && keys['KeyZ'] && e.id === player.id && !e.isOverheated) { const fl = ctx.createRadialGradient(-35,0,0,-35,0,15); fl.addColorStop(0,'white'); fl.addColorStop(0.4,'cyan'); fl.addColorStop(1,'transparent'); ctx.fillStyle=fl; ctx.beginPath(); ctx.arc(-35,0,15,0,Math.PI*2); ctx.fill(); }
+            ctx.restore();
+        }
+
+        function drawPodium() {
+            ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fillRect(0,0,WIDTH,HEIGHT);
+            const cX = WIDTH/2, bY = HEIGHT - 100;
+            const spots = [{ x: cX, h: 120, label: "1º", color: "gold", finisher: podiumFinishers[0] }, { x: cX - 150, h: 80, label: "2º", color: "silver", finisher: podiumFinishers[1] }, { x: cX + 150, h: 60, label: "3º", color: "#cd7f32", finisher: podiumFinishers[2] }];
+            spots.forEach(s => { 
+                ctx.fillStyle='#222'; ctx.fillRect(s.x-60, bY-s.h, 120, s.h); 
+                ctx.strokeStyle=s.color; ctx.lineWidth=4; ctx.strokeRect(s.x-60, bY-s.h, 120, s.h); 
+                ctx.fillStyle=s.color; ctx.font="bold 24px Arial"; ctx.textAlign="center"; 
+                ctx.fillText(s.label, s.x, bY-s.h+30);
+                if(s.finisher) {
+                    drawBiker(s.finisher, s.x, bY-s.h-30);
+                    ctx.fillStyle="white"; ctx.font="bold 12px Arial";
+                    ctx.fillText(s.finisher.id, s.x, bY-s.h+60);
+                }
+            });
+            ctx.fillStyle="white"; ctx.font="bold 32px Arial"; ctx.fillText("CEREMÓNIA DE PÓDIO", cX, 80);
+        }
+
+        function draw() {
+            if(podiumActive) { drawPodium(); requestAnimationFrame(draw); return; }
+            const config = LEVELS[currentLevelIndex];
+            const sky = ctx.createLinearGradient(0,0,0,TRACK_TOP); sky.addColorStop(0, config.sky[0]); sky.addColorStop(0.5, config.sky[1]); sky.addColorStop(1, config.sky[2]);
+            ctx.fillStyle = sky; ctx.fillRect(0,0,WIDTH,TRACK_TOP); ctx.fillStyle = config.grass; ctx.fillRect(0,TRACK_TOP,WIDTH,HEIGHT-TRACK_TOP);
+            const track = ctx.createLinearGradient(0, TRACK_TOP, 0, TRACK_TOP + LANES*LANE_HEIGHT); track.addColorStop(0, config.dirt); track.addColorStop(0.5, "#fff1"); track.addColorStop(1, config.dirt);
+            ctx.fillStyle = track; ctx.fillRect(0, TRACK_TOP-10, WIDTH, LANES*LANE_HEIGHT+20);
+            const mX = WIDTH/2 + (config.distance - player.distTravelled);
+            if(mX > -200 && mX < WIDTH + 800) { ctx.fillStyle='#fff'; ctx.fillRect(mX, TRACK_TOP-10, 80, LANES*LANE_HEIGHT+20); ctx.fillStyle='#000'; for(let i=0; i<16; i++) for(let j=0; j<4; j++) if((i+j)%2===0) ctx.fillRect(mX+j*20, TRACK_TOP-10+i*14, 20, 14); }
+            speedLines.forEach(l => { ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(l.x+l.l, l.y); ctx.stroke(); });
+            trackDecor.forEach(d => { ctx.save(); ctx.translate(d.x, d.y); ctx.scale(d.scale, d.scale); ctx.fillStyle = currentLevelIndex === 1 ? '#4b0082' : (currentLevelIndex === 3 ? '#fff' : '#2d5a15'); ctx.beginPath(); if(d.type==='tree'){ ctx.moveTo(0,-40); ctx.lineTo(25,10); ctx.lineTo(-25,10); } else ctx.arc(0,0,15,0,Math.PI*2); ctx.fill(); ctx.restore(); });
+            obstacles.forEach(o => { if(o.type==='ramp'){ ctx.fillStyle='#8b4513'; ctx.beginPath(); ctx.moveTo(o.x-50, o.y+20); ctx.lineTo(o.x+10, o.y-25); ctx.lineTo(o.x+70, o.y+20); ctx.fill(); } else { ctx.fillStyle=currentLevelIndex===1 ? '#000' : '#3e2723'; ctx.beginPath(); ctx.ellipse(o.x, o.y+15, 45, 12, 0, 0, Math.PI*2); ctx.fill(); } });
+            particles.forEach(p => { ctx.fillStyle=p.c; ctx.globalAlpha=p.life; ctx.beginPath(); ctx.arc(p.x,p.y,p.s,0,Math.PI*2); ctx.fill(); }); ctx.globalAlpha=1;
+            const all = [player, ...bots].sort((a,b) => a.y - b.y); all.forEach(b => drawBiker(b));
+            requestAnimationFrame(() => { update(); draw(); });
+        }
+        levelNameDisplay.innerText = LEVELS[0].name; msgBox.style.display = 'block'; draw();
+    </script>
+</body>
+</html>

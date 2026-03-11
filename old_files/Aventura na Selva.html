@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pitfall! - Mini Tributo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #1a202c;
+            color: white;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            background-color: #5b7a37; /* Cor de fundo da floresta */
+            border: 4px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body class="touch-none select-none" onclick="window.focus()">
+
+    <div id="ui-header" class="text-center mb-2 mt-4 flex-shrink-0">
+        <h1 class="text-3xl md:text-4xl font-bold text-yellow-400 mb-1 uppercase tracking-widest">Aventura na Selva</h1>
+        <h2 id="levelDisplay" class="text-xl md:text-2xl font-bold text-green-400 mb-1 uppercase">Fase 1</h2>
+        <p class="text-gray-300 hidden sm:block">Use <kbd class="bg-gray-700 px-2 py-1 rounded">←</kbd> <kbd class="bg-gray-700 px-2 py-1 rounded">→</kbd> para correr e <kbd class="bg-gray-700 px-2 py-1 rounded">ESPAÇO</kbd> para saltar.</p>
+    </div>
+
+    <div id="canvas-container" class="flex-grow flex items-center justify-center w-full px-2 min-h-0">
+        <canvas id="gameCanvas" width="800" height="450"></canvas>
+    </div>
+
+    <!-- Controlos Tácteis para Dispositivos Móveis e Rato -->
+    <div id="ui-controls" class="my-4 flex justify-center gap-2 w-full max-w-2xl px-4 flex-shrink-0">
+        <button id="btnLeft" class="bg-gray-700 active:bg-gray-600 px-6 py-4 rounded-lg text-3xl flex-1 touch-manipulation">⬅️</button>
+        <button id="btnJump" class="bg-blue-600 active:bg-blue-500 px-6 py-4 rounded-lg text-xl font-bold flex-[2] shadow-lg touch-manipulation">SALTAR</button>
+        <button id="btnRight" class="bg-gray-700 active:bg-gray-600 px-6 py-4 rounded-lg text-3xl flex-1 touch-manipulation">➡️</button>
+        <button id="btnFullscreen" class="bg-purple-600 active:bg-purple-500 px-4 py-4 rounded-lg text-2xl font-bold shadow-lg touch-manipulation text-white" title="Ecrã Inteiro">⛶</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Áudio (Web Audio API para sons retro)
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+
+            if (type === 'jump') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+                gainNode.gain.setValueAtTime(0.05, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'vine') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(600, now);
+                osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+                gainNode.gain.setValueAtTime(0.05, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'treasure') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.setValueAtTime(600, now + 0.1);
+                osc.frequency.setValueAtTime(800, now + 0.2);
+                gainNode.gain.setValueAtTime(0.05, now);
+                gainNode.gain.linearRampToValueAtTime(0, now + 0.3);
+                osc.start(now); osc.stop(now + 0.3);
+            } else if (type === 'die') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(100, now);
+                osc.frequency.exponentialRampToValueAtTime(10, now + 0.5);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.linearRampToValueAtTime(0, now + 0.5);
+                osc.start(now); osc.stop(now + 0.5);
+            } else if (type === 'winGame') {
+                osc.type = 'square';
+                [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                    osc.frequency.setValueAtTime(freq, now + i*0.15);
+                });
+                gainNode.gain.setValueAtTime(0.05, now);
+                gainNode.gain.linearRampToValueAtTime(0, now + 0.6);
+                osc.start(now); osc.stop(now + 0.6);
+            }
+        }
+
+        // Configurações e Estado do Jogo
+        const GROUND_Y = 280;
+        const GRAVITY = 0.6;
+        let gameState = 'playing'; // 'playing', 'gameover', 'levelComplete', 'win'
+        let currentLevelIndex = 0;
+        let globalTime = 0; // Temporizador para as animações 32-bits
+
+        // Fases
+        const levels = [
+            { // Fase 1: Clássica
+                pits: [{ x: 280, w: 240, color: '#3b82f6' }],
+                vine: { pivotX: 400, pivotY: -50, length: 280, speed: 0.0025 },
+                treasure: { x: 700, y: GROUND_Y - 20, w: 20, h: 20, color: '#fbbf24' }
+            },
+            { // Fase 2: Pulos precisos (sem cipó)
+                pits: [{ x: 200, w: 120, color: '#3b82f6' }, { x: 450, w: 120, color: '#3b82f6' }],
+                vine: null,
+                treasure: { x: 700, y: GROUND_Y - 20, w: 20, h: 20, color: '#fbbf24' }
+            },
+            { // Fase 3: Fosso Gigante e Lava, cipó rápido
+                pits: [{ x: 200, w: 400, color: '#ef4444' }],
+                vine: { pivotX: 400, pivotY: -50, length: 280, speed: 0.004 },
+                treasure: { x: 720, y: GROUND_Y - 20, w: 20, h: 20, color: '#fbbf24' }
+            },
+            { // Fase 4: 3 fossos pequenos
+                pits: [{ x: 150, w: 90, color: '#3b82f6' }, { x: 330, w: 90, color: '#3b82f6' }, { x: 510, w: 90, color: '#3b82f6' }],
+                vine: null,
+                treasure: { x: 700, y: GROUND_Y - 20, w: 20, h: 20, color: '#fbbf24' }
+            },
+            { // Fase 5: Misto complicado
+                pits: [{ x: 150, w: 100, color: '#ef4444' }, { x: 350, w: 250, color: '#3b82f6' }],
+                vine: { pivotX: 475, pivotY: -50, length: 280, speed: 0.003 },
+                treasure: { x: 700, y: GROUND_Y - 20, w: 20, h: 20, color: '#fbbf24' }
+            },
+            { // Fase 6: O Desafio Final
+                pits: [{ x: 100, w: 500, color: '#ef4444' }],
+                vine: { pivotX: 350, pivotY: -50, length: 280, speed: 0.0035 },
+                treasure: { x: 700, y: GROUND_Y - 20, w: 20, h: 20, color: '#fbbf24' }
+            }
+        ];
+
+        // Estado do Nível Atual
+        let vine = { tipX: 0, tipY: 0, prevTipX: 0, angle: 0 };
+        let treasureCollected = false;
+
+        // Entidades
+        const player = {
+            x: 50,
+            y: GROUND_Y - 30,
+            w: 16,
+            h: 30,
+            vx: 0,
+            vy: 0,
+            speed: 4,
+            jumpPower: -10,
+            isJumping: false,
+            isOnVine: false,
+            colorHead: '#ffdbac',
+            colorShirt: '#2563eb',
+            colorPants: '#1e3a8a',
+            walkPhase: 0
+        };
+
+        // Controles
+        const keys = {
+            ArrowLeft: false,
+            ArrowRight: false,
+            Space: false
+        };
+
+        function handleJump() {
+            // Inicia o contexto de áudio
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            if (gameState === 'levelComplete') {
+                nextLevel();
+                return;
+            } else if (gameState === 'gameover' || gameState === 'win') {
+                loadLevel(0);
+                return;
+            } else if (gameState !== 'playing') {
+                return;
+            }
+            
+            // Lógica de Salto / Largar o Cipó
+            if (player.isOnVine) {
+                player.isOnVine = false;
+                player.isJumping = true;
+                playSound('jump');
+                // Impulso ao soltar baseado no movimento do cipó
+                const currentVineData = levels[currentLevelIndex].vine;
+                if (currentVineData) {
+                    player.vx = (vine.tipX - vine.prevTipX) * 0.8; 
+                }
+                player.vy = player.jumpPower * 0.8;
+            } else if (!player.isJumping) {
+                player.isJumping = true;
+                player.vy = player.jumpPower;
+                playSound('jump');
+            }
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'ArrowLeft') keys.ArrowLeft = true;
+            if (e.code === 'ArrowRight') keys.ArrowRight = true;
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handleJump();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowLeft') keys.ArrowLeft = false;
+            if (e.code === 'ArrowRight') keys.ArrowRight = false;
+        });
+
+        // Eventos para Botões Tácteis
+        const btnLeft = document.getElementById('btnLeft');
+        const btnRight = document.getElementById('btnRight');
+        const btnJump = document.getElementById('btnJump');
+
+        const pressLeft = (e) => { e.preventDefault(); keys.ArrowLeft = true; };
+        const releaseLeft = (e) => { e.preventDefault(); keys.ArrowLeft = false; };
+        const pressRight = (e) => { e.preventDefault(); keys.ArrowRight = true; };
+        const releaseRight = (e) => { e.preventDefault(); keys.ArrowRight = false; };
+        const pressJump = (e) => { e.preventDefault(); handleJump(); };
+
+        // Suporte a Touch (Telemóveis) e Rato (PC)
+        btnLeft.addEventListener('touchstart', pressLeft, {passive: false});
+        btnLeft.addEventListener('touchend', releaseLeft, {passive: false});
+        btnLeft.addEventListener('mousedown', pressLeft);
+        btnLeft.addEventListener('mouseup', releaseLeft);
+        btnLeft.addEventListener('mouseleave', releaseLeft);
+
+        btnRight.addEventListener('touchstart', pressRight, {passive: false});
+        btnRight.addEventListener('touchend', releaseRight, {passive: false});
+        btnRight.addEventListener('mousedown', pressRight);
+        btnRight.addEventListener('mouseup', releaseRight);
+        btnRight.addEventListener('mouseleave', releaseRight);
+
+        btnJump.addEventListener('touchstart', pressJump, {passive: false});
+        btnJump.addEventListener('mousedown', pressJump);
+
+        // Função para desenhar fundo de selva (Árvores)
+        function drawBackground() {
+            // Céu com gradiente
+            let skyGrd = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+            skyGrd.addColorStop(0, '#4facfe');
+            skyGrd.addColorStop(1, '#00f2fe');
+            ctx.fillStyle = skyGrd;
+            ctx.fillRect(0, 0, canvas.width, GROUND_Y);
+
+            // Nuvens (parallax falso)
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.beginPath();
+            ctx.arc(150 + Math.sin(globalTime * 0.5) * 20, 80, 30, 0, Math.PI * 2);
+            ctx.arc(190 + Math.sin(globalTime * 0.5) * 20, 80, 40, 0, Math.PI * 2);
+            ctx.arc(230 + Math.sin(globalTime * 0.5) * 20, 80, 30, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Árvores de fundo (Distant)
+            ctx.fillStyle = '#2d4a22';
+            ctx.fillRect(50, 100, 20, GROUND_Y - 100);
+            ctx.fillRect(350, 150, 15, GROUND_Y - 150);
+            ctx.fillRect(650, 120, 25, GROUND_Y - 120);
+
+            // Troncos Principais (Detalhes 32-bit)
+            let trunkGrd = ctx.createLinearGradient(100, 0, 130, 0);
+            trunkGrd.addColorStop(0, '#3e2723');
+            trunkGrd.addColorStop(0.5, '#5d4037');
+            trunkGrd.addColorStop(1, '#21110b');
+            
+            ctx.fillStyle = trunkGrd;
+            ctx.fillRect(100, 0, 30, GROUND_Y);
+            
+            let trunkGrd2 = ctx.createLinearGradient(400, 0, 430, 0);
+            trunkGrd2.addColorStop(0, '#3e2723');
+            trunkGrd2.addColorStop(0.5, '#5d4037');
+            trunkGrd2.addColorStop(1, '#21110b');
+            ctx.fillStyle = trunkGrd2;
+            ctx.fillRect(400, 0, 30, GROUND_Y);
+
+            let trunkGrd3 = ctx.createLinearGradient(700, 0, 730, 0);
+            trunkGrd3.addColorStop(0, '#3e2723');
+            trunkGrd3.addColorStop(0.5, '#5d4037');
+            trunkGrd3.addColorStop(1, '#21110b');
+            ctx.fillStyle = trunkGrd3;
+            ctx.fillRect(700, 0, 30, GROUND_Y);
+
+            // Folhagem densa superior
+            let leafGrd = ctx.createLinearGradient(0, 0, 0, 80);
+            leafGrd.addColorStop(0, '#1b5e20');
+            leafGrd.addColorStop(1, 'rgba(27, 94, 32, 0)');
+            ctx.fillStyle = leafGrd;
+            ctx.fillRect(0, 0, canvas.width, 80);
+            
+            // Folhas circulares para dar volume
+            ctx.fillStyle = '#2e7d32';
+            for(let i=0; i<canvas.width; i+=60) {
+                ctx.beginPath();
+                ctx.arc(i, 20, 50, 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+
+        // Desenhar o cenário clássico
+        function drawLevel() {
+            // Chão (Grama superior)
+            let grassGrd = ctx.createLinearGradient(0, GROUND_Y, 0, GROUND_Y + 15);
+            grassGrd.addColorStop(0, '#7cb342');
+            grassGrd.addColorStop(1, '#33691e');
+            ctx.fillStyle = grassGrd;
+            ctx.fillRect(0, GROUND_Y, canvas.width, 15);
+
+            // Terra abaixo da grama
+            let dirtGrd = ctx.createLinearGradient(0, GROUND_Y + 15, 0, canvas.height);
+            dirtGrd.addColorStop(0, '#6d4c41');
+            dirtGrd.addColorStop(1, '#3e2723');
+            ctx.fillStyle = dirtGrd;
+            ctx.fillRect(0, GROUND_Y + 15, canvas.width, canvas.height - GROUND_Y - 15);
+
+            // Subterrâneo (preto com textura/sombra)
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, GROUND_Y + 50, canvas.width, canvas.height);
+
+            // Escada
+            ctx.fillStyle = '#222';
+            ctx.fillRect(180, GROUND_Y, 40, canvas.height);
+            // Degraus 3D
+            for (let i = GROUND_Y + 10; i < canvas.height; i += 20) {
+                ctx.fillStyle = '#8b6b22'; // Dourado escuro topo
+                ctx.fillRect(180, i, 40, 5);
+                ctx.fillStyle = '#5c4513'; // Sombra
+                ctx.fillRect(180, i+3, 40, 2);
+            }
+
+            const currentLevel = levels[currentLevelIndex];
+
+            // Poços de Água/Lava / Crocodilos
+            currentLevel.pits.forEach(pit => {
+                // Fundo do poço (terra escura)
+                ctx.fillStyle = '#2c1e16';
+                ctx.fillRect(pit.x, GROUND_Y, pit.w, 50);
+
+                let isWater = pit.color === '#3b82f6';
+                
+                // Animação da superfície
+                ctx.fillStyle = isWater ? 'rgba(59, 130, 246, 0.8)' : 'rgba(239, 68, 68, 0.9)';
+                ctx.beginPath();
+                ctx.moveTo(pit.x, GROUND_Y + 50);
+                ctx.lineTo(pit.x, GROUND_Y + 10);
+                
+                // Ondas senoidais
+                for (let x = pit.x; x <= pit.x + pit.w; x += 10) {
+                    let waveOffset = Math.sin(globalTime * (isWater ? 2 : 1) + x * 0.05) * 4;
+                    ctx.lineTo(x, GROUND_Y + 15 + waveOffset);
+                }
+                
+                ctx.lineTo(pit.x + pit.w, GROUND_Y + 50);
+                ctx.fill();
+                
+                // Brilho/Luz
+                ctx.fillStyle = isWater ? 'rgba(147, 197, 253, 0.4)' : 'rgba(252, 211, 77, 0.5)';
+                ctx.fillRect(pit.x, GROUND_Y + 15, pit.w, 5);
+                
+                // Crocodilos
+                if (isWater) {
+                    const maxCrocs = Math.floor(pit.w / 80);
+                    for(let i = 0; i < maxCrocs; i++) {
+                        let crocX = pit.x + 30 + (i * 80);
+                        let crocY = GROUND_Y + 10 + Math.sin(globalTime * 3 + i) * 3; // Flutuação
+                        
+                        if (crocX + 40 <= pit.x + pit.w) {
+                            // Corpo do Crocodilo
+                            ctx.fillStyle = '#166534';
+                            ctx.beginPath();
+                            ctx.ellipse(crocX + 20, crocY + 5, 20, 8, 0, 0, Math.PI * 2);
+                            ctx.fill();
+                            
+                            // Escamas nas costas
+                            ctx.fillStyle = '#14532d';
+                            for(let s=0; s<3; s++) {
+                                ctx.beginPath();
+                                ctx.moveTo(crocX + 5 + s*10, crocY);
+                                ctx.lineTo(crocX + 10 + s*10, crocY - 5);
+                                ctx.lineTo(crocX + 15 + s*10, crocY);
+                                ctx.fill();
+                            }
+
+                            // Olho
+                            ctx.fillStyle = '#fbbf24';
+                            ctx.beginPath();
+                            ctx.arc(crocX + 30, crocY, 3, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.fillStyle = '#000';
+                            ctx.beginPath();
+                            ctx.arc(crocX + 31, crocY, 1.5, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
+                }
+            });
+
+            // Tesouro (Baú 3D / Brilhante)
+            if (!treasureCollected) {
+                const t = currentLevel.treasure;
+                
+                // Aura de luz
+                let glow = ctx.createRadialGradient(t.x + t.w/2, t.y + t.h/2, 5, t.x + t.w/2, t.y + t.h/2, 20 + Math.sin(globalTime*5)*5);
+                glow.addColorStop(0, 'rgba(251, 191, 36, 0.8)');
+                glow.addColorStop(1, 'rgba(251, 191, 36, 0)');
+                ctx.fillStyle = glow;
+                ctx.fillRect(t.x - 20, t.y - 20, t.w + 40, t.h + 40);
+
+                // Corpo do Baú
+                ctx.fillStyle = '#8b5a2b';
+                ctx.fillRect(t.x, t.y, t.w, t.h);
+                
+                // Ouro transbordando
+                ctx.fillStyle = '#f59e0b';
+                ctx.beginPath();
+                ctx.arc(t.x + t.w/2, t.y, 8, 0, Math.PI, true);
+                ctx.fill();
+
+                // Detalhes do Baú (Madeira e fechadura)
+                ctx.fillStyle = '#3e2723';
+                ctx.fillRect(t.x, t.y + 4, t.w, 2);
+                ctx.fillRect(t.x, t.y + 14, t.w, 2);
+                
+                ctx.fillStyle = '#d4af37';
+                ctx.fillRect(t.x + t.w/2 - 3, t.y + 8, 6, 6); // Fechadura
+            }
+        }
+
+        function updatePhysics() {
+            globalTime += 0.016; // Aprox 60fps
+            if (gameState !== 'playing') return;
+
+            const currentLevel = levels[currentLevelIndex];
+
+            // Movimento do Cipó (Pêndulo) se existir
+            if (currentLevel.vine) {
+                vine.prevTipX = vine.tipX;
+                vine.angle = Math.sin(Date.now() * currentLevel.vine.speed) * 0.9;
+                vine.tipX = currentLevel.vine.pivotX + Math.sin(vine.angle) * currentLevel.vine.length;
+                vine.tipY = currentLevel.vine.pivotY + Math.cos(vine.angle) * currentLevel.vine.length;
+            }
+
+            if (player.isOnVine && currentLevel.vine) {
+                // Atrelar jogador à ponta do cipó
+                player.x = vine.tipX - player.w / 2;
+                player.y = vine.tipY - player.h / 2;
+                player.vx = 0;
+                player.vy = 0;
+            } else {
+                // Movimento Horizontal
+                if (keys.ArrowLeft) player.vx = -player.speed;
+                else if (keys.ArrowRight) player.vx = player.speed;
+                else player.vx = 0;
+
+                // Aplicar Física
+                player.x += player.vx;
+                player.vy += GRAVITY;
+                player.y += player.vy;
+
+                // Chão e Fossos
+                if (player.y + player.h >= GROUND_Y) {
+                    let inPit = false;
+                    for (let pit of currentLevel.pits) {
+                        if (player.x + player.w > pit.x + 10 && player.x < pit.x + pit.w - 10) {
+                            inPit = true;
+                            break;
+                        }
+                    }
+
+                    if (inPit) {
+                        // Caiu no poço
+                        if(player.y > GROUND_Y + 10) {
+                             gameState = 'gameover';
+                             playSound('die');
+                        }
+                    } else {
+                        // Chão normal
+                        player.y = GROUND_Y - player.h;
+                        player.vy = 0;
+                        player.isJumping = false;
+                    }
+                }
+
+                // Limites da tela
+                if (player.x < 0) player.x = 0;
+                if (player.x + player.w > canvas.width) player.x = canvas.width - player.w;
+
+                // Checar agarre no cipó
+                if (currentLevel.vine && player.isJumping && player.vy > -5) {
+                    let distToVineX = Math.abs((player.x + player.w/2) - vine.tipX);
+                    let distToVineY = Math.abs((player.y + player.h/2) - vine.tipY);
+                    
+                    if (distToVineX < 20 && distToVineY < 30) {
+                        player.isOnVine = true;
+                        player.isJumping = false;
+                        playSound('vine');
+                    }
+                }
+
+                // Checar coleta de tesouro
+                if (!treasureCollected) {
+                    const t = currentLevel.treasure;
+                    if (player.x < t.x + t.w &&
+                        player.x + player.w > t.x &&
+                        player.y < t.y + t.h &&
+                        player.y + player.h > t.y) {
+                        
+                        treasureCollected = true;
+                        
+                        if (currentLevelIndex < levels.length - 1) {
+                            gameState = 'levelComplete';
+                            playSound('treasure');
+                        } else {
+                            gameState = 'win';
+                            playSound('winGame');
+                        }
+                    }
+                }
+            }
+        }
+
+        function drawPlayer() {
+            // Sombra do jogador
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.ellipse(player.x + player.w/2, player.y + player.h, player.w/2, 3, 0, 0, Math.PI*2);
+            ctx.fill();
+
+            // Animação de caminhada
+            if (player.vx !== 0 && !player.isJumping && !player.isOnVine) {
+                player.walkPhase += 0.2;
+            } else if (player.isJumping || player.isOnVine) {
+                player.walkPhase = 0; // Perna esticada no ar/cipó
+            } else {
+                player.walkPhase = 0; // Parado
+            }
+
+            let swing = Math.sin(player.walkPhase) * 6;
+            
+            // Pernas
+            ctx.strokeStyle = player.colorPants;
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            
+            // Perna Esquerda
+            ctx.beginPath();
+            ctx.moveTo(player.x + 6, player.y + 20);
+            ctx.lineTo(player.x + 6 + (player.isJumping ? -4 : swing), player.y + 30 + (player.isJumping ? -5 : 0));
+            ctx.stroke();
+
+            // Perna Direita
+            ctx.beginPath();
+            ctx.moveTo(player.x + 10, player.y + 20);
+            ctx.lineTo(player.x + 10 + (player.isJumping ? 4 : -swing), player.y + 30 + (player.isJumping ? -2 : 0));
+            ctx.stroke();
+
+            // Torso (Camisa com leve gradiente)
+            let shirtGrd = ctx.createLinearGradient(player.x, player.y + 8, player.x + player.w, player.y + 20);
+            shirtGrd.addColorStop(0, '#60a5fa');
+            shirtGrd.addColorStop(1, '#1d4ed8');
+            ctx.fillStyle = shirtGrd;
+            ctx.fillRect(player.x, player.y + 8, player.w, 12);
+            
+            // Braços
+            ctx.strokeStyle = player.colorHead;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(player.x + 8, player.y + 10);
+            
+            if (player.isOnVine) {
+                // Braço esticado pra cima
+                ctx.lineTo(player.x + 8, player.y - 5);
+            } else {
+                // Braço balançando oposto às pernas
+                ctx.lineTo(player.x + 8 - swing, player.y + 18);
+            }
+            ctx.stroke();
+
+            // Cabeça
+            ctx.fillStyle = player.colorHead;
+            ctx.beginPath();
+            ctx.arc(player.x + 8, player.y + 4, 6, 0, Math.PI*2);
+            ctx.fill();
+
+            // Cabelo/Chapéu (Estilo Aventureiro)
+            ctx.fillStyle = '#654321';
+            ctx.beginPath();
+            ctx.arc(player.x + 8, player.y + 2, 6, Math.PI, 0);
+            ctx.fill();
+            ctx.fillRect(player.x + 2, player.y + 2, 12, 2);
+        }
+
+        function drawVine() {
+            const currentLevel = levels[currentLevelIndex];
+            if (!currentLevel.vine) return;
+
+            // Cipó tipo corda torcida
+            ctx.strokeStyle = '#4a5d23'; // Verde oliva escuro
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(currentLevel.vine.pivotX, currentLevel.vine.pivotY);
+            ctx.lineTo(vine.tipX, vine.tipY);
+            ctx.stroke();
+            
+            // Detalhe trançado 
+            ctx.strokeStyle = '#2e3b16';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(currentLevel.vine.pivotX, currentLevel.vine.pivotY);
+            ctx.lineTo(vine.tipX, vine.tipY);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
+
+            // Ponto de agarre (Nó no cipó)
+            ctx.fillStyle = '#4a5d23';
+            ctx.beginPath();
+            ctx.ellipse(vine.tipX, vine.tipY, 6, 8, vine.angle, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawUI() {
+            if (gameState === 'gameover') {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'red';
+                ctx.font = 'bold 40px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('MORREU!', canvas.width / 2, canvas.height / 2 - 20);
+                ctx.fillStyle = 'white';
+                ctx.font = '20px monospace';
+                ctx.fillText('Pressione SALTAR para recomeçar do zero.', canvas.width / 2, canvas.height / 2 + 20);
+            } else if (gameState === 'levelComplete') {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'gold';
+                ctx.font = 'bold 40px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(`FASE ${currentLevelIndex + 1} CONCLUÍDA!`, canvas.width / 2, canvas.height / 2 - 20);
+                ctx.fillStyle = 'white';
+                ctx.font = '20px monospace';
+                ctx.fillText('Pressione SALTAR para a próxima fase.', canvas.width / 2, canvas.height / 2 + 20);
+            } else if (gameState === 'win') {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#4ade80';
+                ctx.font = 'bold 40px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('PARABÉNS, ZEROU O JOGO!', canvas.width / 2, canvas.height / 2 - 20);
+                ctx.fillStyle = 'white';
+                ctx.font = '20px monospace';
+                ctx.fillText('Pressione SALTAR para jogar de novo.', canvas.width / 2, canvas.height / 2 + 20);
+            }
+        }
+
+        function loadLevel(index) {
+            currentLevelIndex = index;
+            document.getElementById('levelDisplay').innerText = `Fase ${index + 1}`;
+            player.x = 50;
+            player.y = GROUND_Y - player.h;
+            player.vx = 0;
+            player.vy = 0;
+            player.isJumping = false;
+            player.isOnVine = false;
+            treasureCollected = false;
+            gameState = 'playing';
+        }
+
+        function nextLevel() {
+            if (currentLevelIndex < levels.length - 1) {
+                loadLevel(currentLevelIndex + 1);
+            } else {
+                loadLevel(0);
+            }
+        }
+
+        // --- SISTEMA DE ECRÃ INTEIRO E WIDESCREEN DINÂMICO ---
+        function adjustCanvasSize() {
+            const header = document.getElementById('ui-header');
+            const controls = document.getElementById('ui-controls');
+            
+            // Altura ocupada pelas margens e UI
+            const uiHeight = (header ? header.offsetHeight : 0) + (controls ? controls.offsetHeight : 0) + 40; 
+            
+            const availableHeight = window.innerHeight - uiHeight;
+            const availableWidth = window.innerWidth - 16; // Pequena margem lateral
+            
+            const targetRatio = 16 / 9; // Resolução base do jogo (800x450)
+            let newWidth = availableWidth;
+            let newHeight = newWidth / targetRatio;
+            
+            // Se a altura calculada for maior que o espaço disponível, ajusta pela altura
+            if (newHeight > availableHeight) {
+                newHeight = availableHeight;
+                newWidth = newHeight * targetRatio;
+            }
+            
+            canvas.style.width = `${newWidth}px`;
+            canvas.style.height = `${newHeight}px`;
+        }
+
+        window.addEventListener('resize', adjustCanvasSize);
+        // Ajuste inicial
+        adjustCanvasSize();
+
+        // Lógica do Botão de Ecrã Inteiro
+        const btnFullscreen = document.getElementById('btnFullscreen');
+        if (btnFullscreen) {
+            btnFullscreen.addEventListener('click', () => {
+                if (!document.fullscreenElement) {
+                    document.body.requestFullscreen().catch(err => {
+                        console.warn(`Erro ao ativar ecrã inteiro: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            });
+        }
+        
+        // Ajustar também quando entra/sai do ecrã inteiro nativo
+        document.addEventListener('fullscreenchange', () => {
+            setTimeout(adjustCanvasSize, 100);
+        });
+
+        function gameLoop() {
+            updatePhysics();
+
+            // Desenhar tudo
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBackground();
+            drawLevel();
+            drawVine();
+            drawPlayer();
+            drawUI();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Iniciar loop e carregar primeira fase
+        loadLevel(0);
+        gameLoop();
+    </script>
+</body>
+</html>
