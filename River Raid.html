@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>River Raid 32-Bit Edition</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050510;
+            color: #fff;
+            font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #000;
+        }
+
+        canvas {
+            display: block;
+            background-color: #2b5e20;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            aspect-ratio: 16 / 9;
+            box-shadow: 0 0 30px rgba(50, 150, 255, 0.2);
+        }
+
+        #touch-controls {
+            display: none;
+            position: absolute;
+            bottom: 5vh;
+            width: 100%;
+            max-width: 800px;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        .t-btn {
+            background: linear-gradient(to bottom, #444, #222);
+            border: 2px solid #666;
+            color: white;
+            width: 55px;
+            height: 55px;
+            border-radius: 50%;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5), inset 0 2px 2px rgba(255,255,255,0.2);
+            text-shadow: 1px 1px 2px black;
+        }
+        
+        .t-btn:active {
+            background: linear-gradient(to bottom, #222, #444);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.5), inset 0 4px 6px rgba(0,0,0,0.6);
+            transform: translateY(2px);
+        }
+
+        .fire-btn {
+            width: 80px;
+            border-radius: 15px;
+            background: linear-gradient(to bottom, #cc2222, #880000);
+            border-color: #ff5555;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .fire-btn:active {
+            background: linear-gradient(to bottom, #880000, #cc2222);
+        }
+
+        @media (max-width: 768px) {
+            #touch-controls {
+                display: flex;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+    </div>
+
+    <div id="touch-controls">
+        <div class="btn-group">
+            <div class="t-btn" id="btn-left">◀</div>
+            <div class="t-btn" id="btn-right">▶</div>
+        </div>
+        <div class="btn-group">
+            <div class="t-btn" id="btn-up">▲</div>
+            <div class="t-btn" id="btn-down">▼</div>
+            <div class="t-btn fire-btn" id="btn-fire">AÇÃO</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Paleta 32-bits (Cores mais ricas e gradientes)
+        const C_LAND_DARK = '#244d18';
+        const C_LAND_LIGHT = '#356d25';
+        const C_SAND = '#c2b280';
+        const C_WATER_DEEP = '#1a3c7a';
+        const C_WATER_LIGHT = '#2962ff';
+        const C_UI_BG = 'rgba(20, 25, 30, 0.9)';
+
+        let gameState = 'START';
+        let score = 0;
+        let lives = 3;
+        let fuel = 100;
+        let baseScrollSpeed = 2;
+        let scrollSpeed = baseScrollSpeed;
+        let frames = 0;
+        let level = 1;
+        const MAX_LEVELS = 10;
+
+        let player = { x: 640, y: 600, w: 24, h: 32, speed: 7, isRefueling: false, bank: 0 };
+        let bullets = [];
+        let enemies = [];
+        let fuels = [];
+        let bridges = [];
+        let particles = [];
+        let riverBlocks = [];
+
+        const BLOCK_HEIGHT = 10;
+        let currentRiverWidth = 600;
+        let currentRiverCenter = 640;
+        let targetRiverWidth = 600;
+        let targetRiverCenter = 640;
+        let bridgeCountdown = 1200;
+
+        const keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, Space: false };
+        let canShoot = true;
+
+        // --- SISTEMA DE ÁUDIO ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx, noiseBuffer;
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new AudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function getNoiseBuffer() {
+            if (!noiseBuffer && audioCtx) {
+                const bufferSize = audioCtx.sampleRate * 2;
+                noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+            }
+            return noiseBuffer;
+        }
+
+        function playShootSound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function playExplosionSound() {
+            if (!audioCtx) return;
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = getNoiseBuffer();
+            const noiseFilter = audioCtx.createBiquadFilter();
+            noiseFilter.type = 'lowpass'; noiseFilter.frequency.setValueAtTime(800, audioCtx.currentTime);
+            noiseFilter.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.6);
+            const gain = audioCtx.createGain();
+            noise.connect(noiseFilter); noiseFilter.connect(gain); gain.connect(audioCtx.destination);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+            noise.start(); noise.stop(audioCtx.currentTime + 0.6);
+        }
+
+        function playRefuelSound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800 + Math.random() * 400, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            gain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function playVictorySound() {
+            if (!audioCtx) return;
+            const notes = [440, 554.37, 659.25, 880, 1108.73];
+            notes.forEach((freq, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.type = 'triangle';
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime + i * 0.12);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.12 + 0.4);
+                osc.start(audioCtx.currentTime + i * 0.12);
+                osc.stop(audioCtx.currentTime + i * 0.12 + 0.4);
+            });
+        }
+
+        // --- TERRENO ---
+        function initTerrain() {
+            riverBlocks = [];
+            for (let y = -BLOCK_HEIGHT; y <= canvas.height + BLOCK_HEIGHT; y += BLOCK_HEIGHT) {
+                riverBlocks.push(generateRiverBlock(y));
+            }
+        }
+
+        function generateRiverBlock(y) {
+            if (currentRiverWidth < targetRiverWidth) currentRiverWidth += 2;
+            else if (currentRiverWidth > targetRiverWidth) currentRiverWidth -= 2;
+
+            if (currentRiverCenter < targetRiverCenter) currentRiverCenter += 2;
+            else if (currentRiverCenter > targetRiverCenter) currentRiverCenter -= 2;
+
+            if (currentRiverCenter - currentRiverWidth/2 < 50) targetRiverCenter += 20;
+            if (currentRiverCenter + currentRiverWidth/2 > canvas.width - 50) targetRiverCenter -= 20;
+
+            let minWidth = Math.max(200, 450 - level * 20);
+            let maxWidth = Math.max(300, 800 - level * 25);
+            let changeChance = 0.05 + (level * 0.005);
+
+            if (Math.random() < changeChance) {
+                targetRiverWidth = Math.max(minWidth, Math.min(maxWidth, currentRiverWidth + (Math.random() * 120 - 60)));
+                targetRiverCenter = Math.max(200, Math.min(canvas.width - 200, currentRiverCenter + (Math.random() * 160 - 80)));
+            }
+
+            return { y: y, left: currentRiverCenter - currentRiverWidth / 2, right: currentRiverCenter + currentRiverWidth / 2 };
+        }
+
+        function resetGame() {
+            initAudio(); score = 0; lives = 3; level = 1; resetLevel(); gameState = 'PLAYING';
+        }
+
+        function resetLevel() {
+            fuel = 100; player.x = canvas.width / 2; player.y = canvas.height - 120;
+            bullets = []; enemies = []; fuels = []; bridges = []; particles = [];
+            currentRiverWidth = 600; currentRiverCenter = canvas.width / 2;
+            targetRiverWidth = 600; targetRiverCenter = canvas.width / 2;
+            initTerrain();
+        }
+
+        // --- LÓGICA DE ATUALIZAÇÃO ---
+        let lastRefuelSoundTime = 0;
+
+        function update() {
+            if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') {
+                frames++; // Para animar o fundo mesmo no menu
+                return;
+            }
+            frames++;
+
+            // Partículas
+            particles.forEach(p => { 
+                p.x += p.vx; p.y += p.vy; 
+                p.life -= 1; 
+                if (p.type === 'smoke') { p.size += 0.5; p.vx *= 0.95; p.vy *= 0.95; }
+            });
+            particles = particles.filter(p => p.life > 0);
+
+            if (gameState === 'DYING') return;
+
+            // Movimento e inclinação (bank) do jato
+            if (keys.ArrowUp) { scrollSpeed = 5; player.y = Math.max(150, player.y - 2); } 
+            else if (keys.ArrowDown) { scrollSpeed = 1.5; player.y = Math.min(480, player.y + 2); } 
+            else { scrollSpeed = baseScrollSpeed; }
+
+            if (keys.ArrowLeft) { player.x -= player.speed; player.bank = Math.max(-1, player.bank - 0.2); }
+            else if (keys.ArrowRight) { player.x += player.speed; player.bank = Math.min(1, player.bank + 0.2); }
+            else { player.bank *= 0.8; } // Retorna ao centro suavemente
+
+            if (keys.Space && canShoot) {
+                bullets.push({ x: player.x, y: player.y - 15, speed: 12, active: true });
+                playShootSound(); canShoot = false; setTimeout(() => canShoot = true, 180);
+            }
+
+            fuel -= (scrollSpeed === 5 ? 0.08 : 0.03);
+            if (fuel <= 0) die();
+
+            bullets.forEach(b => b.y -= b.speed);
+            bullets = bullets.filter(b => b.y > 0 && b.active);
+
+            for (let i = 0; i < riverBlocks.length; i++) riverBlocks[i].y += scrollSpeed;
+            while (riverBlocks[0].y > 0) {
+                riverBlocks.unshift(generateRiverBlock(riverBlocks[0].y - BLOCK_HEIGHT));
+            }
+            riverBlocks = riverBlocks.filter(b => b.y < canvas.height + BLOCK_HEIGHT);
+
+            bridgeCountdown -= scrollSpeed;
+            if (bridgeCountdown <= 0) {
+                let topBlock = riverBlocks[0];
+                bridges.push({ y: -40, x: topBlock.left, w: topBlock.right - topBlock.left, h: 40 });
+                bridgeCountdown = 1000 + Math.random() * 800;
+                targetRiverWidth = Math.max(200, 350 - level * 15); 
+            } else {
+                let spawnInterval = Math.max(25, 60 - level * 3);
+                if (frames % spawnInterval === 0 && Math.random() > 0.3) {
+                    let topBlock = riverBlocks[5];
+                    let isFuel = Math.random() > (0.7 + level * 0.01);
+                    let objX = topBlock.left + 50 + Math.random() * (topBlock.right - topBlock.left - 100);
+                    
+                    if (isFuel) {
+                        fuels.push({ x: objX, y: -30, w: 24, h: 40 });
+                    } else {
+                        let type = Math.random() > 0.5 ? 'heli' : 'ship';
+                        let dir = Math.random() > 0.5 ? 1 : -1;
+                        let enemySpeed = (type === 'heli' ? 1.5 : 0.8) + (level * 0.1);
+                        enemies.push({ x: objX, y: -30, w: type==='heli'?28:20, h: type==='heli'?28:40, type: type, dir: dir, speed: enemySpeed, frame: 0 });
+                    }
+                }
+            }
+
+            bridges.forEach(br => br.y += scrollSpeed);
+            fuels.forEach(f => f.y += scrollSpeed);
+
+            enemies.forEach(e => {
+                e.y += scrollSpeed; e.x += e.speed * e.dir; e.frame++;
+                let block = riverBlocks.find(b => b.y >= e.y && b.y < e.y + BLOCK_HEIGHT);
+                if (block && (e.x - e.w/2 < block.left || e.x + e.w/2 > block.right)) {
+                    e.dir *= -1; e.x += e.speed * e.dir * 2;
+                }
+            });
+
+            enemies = enemies.filter(e => e.y < canvas.height + 50);
+            fuels = fuels.filter(f => f.y < canvas.height + 50);
+            bridges = bridges.filter(br => br.y < canvas.height + 50);
+
+            checkCollisions();
+        }
+
+        function createExplosion(x, y) {
+            playExplosionSound();
+            // Fogo central
+            for (let i = 0; i < 20; i++) {
+                particles.push({
+                    x: x, y: y, type: 'fire',
+                    vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+                    life: 15 + Math.random() * 20, maxLife: 35,
+                    size: 4 + Math.random() * 6
+                });
+            }
+            // Fumo em volta
+            for (let i = 0; i < 15; i++) {
+                particles.push({
+                    x: x, y: y, type: 'smoke',
+                    vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4,
+                    life: 30 + Math.random() * 30, maxLife: 60,
+                    size: 8 + Math.random() * 10
+                });
+            }
+            // Destroços
+            for (let i = 0; i < 8; i++) {
+                particles.push({
+                    x: x, y: y, type: 'debris',
+                    vx: (Math.random() - 0.5) * 12, vy: (Math.random() - 0.5) * 12,
+                    life: 20 + Math.random() * 20, maxLife: 40, size: 2
+                });
+            }
+        }
+
+        function die() {
+            createExplosion(player.x, player.y);
+            lives--; gameState = 'DYING';
+            setTimeout(() => {
+                if (lives > 0) { resetLevel(); gameState = 'PLAYING'; } 
+                else { gameState = 'GAMEOVER'; }
+            }, 2000);
+        }
+
+        function checkCollisions() {
+            const collide = (r1, r2) => {
+                let r1x = r1.x - r1.w/2; let r1y = r1.y - r1.h/2;
+                let r2x = r2.isCentered ? r2.x - r2.w/2 : r2.x; let r2y = r2.y;
+                // Hitbox um pouco menor para ser justo em 32-bit (onde os sprites têm transparência)
+                let margin = 4;
+                return r1x + margin < r2x + r2.w - margin && r1x + r1.w - margin > r2x + margin && 
+                       r1y + margin < r2y + r2.h - margin && r1y + r1.h - margin > r2y + margin;
+            };
+
+            let currentBlock = riverBlocks.find(b => b.y >= player.y - player.h/2 && b.y < player.y + player.h/2);
+            if (currentBlock && (player.x - player.w/2 < currentBlock.left || player.x + player.w/2 > currentBlock.right)) {
+                die(); return;
+            }
+
+            player.isRefueling = false;
+
+            fuels.forEach((f) => {
+                if (collide(player, {x: f.x - f.w/2, y: f.y, w: f.w, h: f.h, isCentered: false})) {
+                    player.isRefueling = true;
+                    fuel = Math.min(100, fuel + 1.2);
+                    if (frames - lastRefuelSoundTime > 8) { playRefuelSound(); lastRefuelSoundTime = frames; }
+                }
+            });
+
+            bullets.forEach(b => {
+                if (!b.active) return;
+                let bRect = {x: b.x, y: b.y, w: 6, h: 12};
+
+                enemies.forEach((e, i) => {
+                    if (collide({x: bRect.x, y: bRect.y, w: bRect.w, h: bRect.h}, {x: e.x - e.w/2, y: e.y, w: e.w, h: e.h, isCentered: false})) {
+                        b.active = false; createExplosion(e.x, e.y + e.h/2); enemies.splice(i, 1);
+                        score += (e.type === 'heli' ? 60 : 30);
+                    }
+                });
+
+                bridges.forEach((br, i) => {
+                    if (collide({x: bRect.x, y: bRect.y, w: bRect.w, h: bRect.h}, {x: br.x, y: br.y, w: br.w, h: br.h, isCentered: false})) {
+                        b.active = false; createExplosion(br.x + br.w/2, br.y + br.h/2); bridges.splice(i, 1);
+                        score += 500; level++;
+                        if (level > MAX_LEVELS) { gameState = 'VICTORY'; playVictorySound(); }
+                    }
+                });
+
+                fuels.forEach((f, i) => {
+                    if (collide({x: bRect.x, y: bRect.y, w: bRect.w, h: bRect.h}, {x: f.x - f.w/2, y: f.y, w: f.w, h: f.h, isCentered: false})) {
+                        b.active = false; createExplosion(f.x, f.y + f.h/2); fuels.splice(i, 1); score += 80;
+                    }
+                });
+            });
+
+            enemies.forEach(e => { if (collide(player, {x: e.x - e.w/2, y: e.y, w: e.w, h: e.h, isCentered: false})) die(); });
+            bridges.forEach(br => { if (collide(player, {x: br.x, y: br.y, w: br.w, h: br.h, isCentered: false})) die(); });
+        }
+
+        // --- SISTEMA DE RENDERIZAÇÃO 32-BIT ---
+
+        function drawShadow(x, y, w, h, isCircle = false, offsetX = 15, offsetY = 15) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.beginPath();
+            if (isCircle) {
+                ctx.ellipse(x + offsetX, y + offsetY, w/2, h/2, 0, 0, Math.PI * 2);
+            } else {
+                ctx.rect(x - w/2 + offsetX, y - h/2 + offsetY, w, h);
+            }
+            ctx.fill();
+        }
+
+        function draw() {
+            // Fundo / Relva base
+            ctx.fillStyle = C_LAND_LIGHT;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Relva texturizada (padrões simples horizontais)
+            ctx.fillStyle = C_LAND_DARK;
+            for(let i = 0; i < canvas.height; i += 40) {
+                ctx.globalAlpha = 0.3;
+                ctx.fillRect(0, i + (frames * scrollSpeed * 0.5) % 40, canvas.width, 10);
+                ctx.globalAlpha = 1.0;
+            }
+
+            // Margens do Rio (Areia e Água)
+            ctx.lineJoin = "round";
+            
+            // Desenhar forma base do rio
+            ctx.beginPath();
+            if (riverBlocks.length > 0) {
+                ctx.moveTo(riverBlocks[0].left, riverBlocks[0].y);
+                for (let i = 1; i < riverBlocks.length; i++) ctx.lineTo(riverBlocks[i].left, riverBlocks[i].y);
+                ctx.lineTo(riverBlocks[riverBlocks.length-1].right, riverBlocks[riverBlocks.length-1].y);
+                for (let i = riverBlocks.length - 2; i >= 0; i--) ctx.lineTo(riverBlocks[i].right, riverBlocks[i].y);
+                ctx.closePath();
+            }
+
+            // 1. Areia (Borda exterior)
+            ctx.fillStyle = C_SAND;
+            ctx.lineWidth = 15;
+            ctx.strokeStyle = C_SAND;
+            ctx.stroke();
+            ctx.fill();
+
+            // 2. Água Rasa
+            ctx.fillStyle = C_WATER_LIGHT;
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = C_WATER_LIGHT;
+            ctx.stroke();
+            ctx.fill();
+
+            // 3. Água Profunda (Centro)
+            ctx.beginPath();
+            if (riverBlocks.length > 0) {
+                ctx.moveTo(riverBlocks[0].left + 15, riverBlocks[0].y);
+                for (let i = 1; i < riverBlocks.length; i++) ctx.lineTo(riverBlocks[i].left + 15, riverBlocks[i].y);
+                ctx.lineTo(riverBlocks[riverBlocks.length-1].right - 15, riverBlocks[riverBlocks.length-1].y);
+                for (let i = riverBlocks.length - 2; i >= 0; i--) ctx.lineTo(riverBlocks[i].right - 15, riverBlocks[i].y);
+                ctx.closePath();
+            }
+            ctx.fillStyle = C_WATER_DEEP;
+            ctx.fill();
+
+            // Reflexos na água (linhas animadas)
+            ctx.globalCompositeOperation = 'screen';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            for(let i = 0; i < canvas.height; i += 60) {
+                let waveY = i + (frames * scrollSpeed * 1.5) % 60;
+                let b = riverBlocks.find(rb => waveY >= rb.y && waveY < rb.y + BLOCK_HEIGHT);
+                if (b) {
+                    ctx.fillRect(b.left + 20, waveY, (b.right - b.left) - 40, 4);
+                }
+            }
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Sombras projetadas pelas margens
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            riverBlocks.forEach(b => {
+                ctx.fillRect(b.left, b.y, 8, BLOCK_HEIGHT+1);
+            });
+
+            // Sombras Globais das Entidades
+            if (gameState === 'PLAYING') drawShadow(player.x, player.y, player.w, player.h, false, 20, 20);
+            enemies.forEach(e => drawShadow(e.x, e.y + e.h/2, e.w, e.h, e.type === 'heli', 15, 15));
+            fuels.forEach(f => drawShadow(f.x, f.y + f.h/2, f.w, f.h, false, 12, 12));
+            bridges.forEach(br => {
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                ctx.fillRect(br.x, br.y + br.h, br.w, 15); // Sombra da ponte na água
+            });
+
+            // --- DESENHAR ENTIDADES ---
+
+            // Pontes
+            bridges.forEach(br => {
+                // Estrutura
+                let grad = ctx.createLinearGradient(0, br.y, 0, br.y + br.h);
+                grad.addColorStop(0, '#555'); grad.addColorStop(0.5, '#aaa'); grad.addColorStop(1, '#444');
+                ctx.fillStyle = grad;
+                ctx.fillRect(br.x, br.y, br.w, br.h);
+                // Pilares laterais
+                ctx.fillStyle = '#333';
+                ctx.fillRect(br.x - 5, br.y - 5, 10, br.h + 10);
+                ctx.fillRect(br.x + br.w - 5, br.y - 5, 10, br.h + 10);
+                // Faixas amarelas
+                ctx.fillStyle = '#ffcc00';
+                for(let ix = br.x + 10; ix < br.x + br.w - 10; ix += 20) {
+                    ctx.fillRect(ix, br.y + br.h/2 - 2, 10, 4);
+                }
+            });
+
+            // Combustível
+            fuels.forEach(f => {
+                let grad = ctx.createLinearGradient(f.x - f.w/2, 0, f.x + f.w/2, 0);
+                grad.addColorStop(0, '#cc0066'); grad.addColorStop(0.5, '#ff66b2'); grad.addColorStop(1, '#99004d');
+                ctx.fillStyle = grad;
+                ctx.fillRect(f.x - f.w/2, f.y, f.w, f.h);
+                
+                // Topo e Base metálicos
+                ctx.fillStyle = '#ccc';
+                ctx.fillRect(f.x - f.w/2, f.y, f.w, 6);
+                ctx.fillRect(f.x - f.w/2, f.y + f.h - 6, f.w, 6);
+                
+                // Letra F com brilho
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('F', f.x, f.y + f.h/2 + 6);
+            });
+
+            // Inimigos
+            enemies.forEach(e => {
+                ctx.save();
+                ctx.translate(e.x, e.y + e.h/2);
+                if (e.dir === -1) ctx.scale(-1, 1); // Vira a sprite
+
+                if (e.type === 'heli') {
+                    // Corpo
+                    let grad = ctx.createRadialGradient(0, 0, 0, 0, 0, e.w);
+                    grad.addColorStop(0, '#4a69bd'); grad.addColorStop(1, '#0c2461');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath(); ctx.ellipse(0, 0, 10, 8, 0, 0, Math.PI*2); ctx.fill();
+                    // Cauda
+                    ctx.fillStyle = '#0c2461'; ctx.fillRect(-18, -2, 10, 4);
+                    // Rotor de cauda
+                    ctx.fillStyle = '#fff'; ctx.fillRect(-20, -5 + Math.sin(e.frame)*3, 2, 10);
+                    // Vidro
+                    ctx.fillStyle = '#82ccdd'; ctx.beginPath(); ctx.arc(5, -2, 4, 0, Math.PI*2); ctx.fill();
+                    // Rotor Principal (Transparente e rodando)
+                    ctx.fillStyle = 'rgba(200, 200, 200, 0.4)';
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, 20 + Math.sin(e.frame*0.5)*5, 2, 0, 0, Math.PI*2);
+                    ctx.fill();
+                } else { // Navio
+                    // Esteira de água (Wake)
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                    ctx.beginPath(); ctx.moveTo(-e.w/2, 0); ctx.lineTo(-e.w, -10); ctx.lineTo(-e.w, 10); ctx.fill();
+                    
+                    // Casco
+                    let grad = ctx.createLinearGradient(0, -e.h/2, 0, e.h/2);
+                    grad.addColorStop(0, '#b71540'); grad.addColorStop(1, '#600018');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.moveTo(e.w/2, 0); ctx.lineTo(e.w/4, -e.h/2); ctx.lineTo(-e.w/2, -e.h/2);
+                    ctx.lineTo(-e.w/2, e.h/2); ctx.lineTo(e.w/4, e.h/2); ctx.closePath(); ctx.fill();
+                    // Cabine
+                    ctx.fillStyle = '#eee'; ctx.fillRect(-4, -6, 10, 12);
+                    ctx.fillStyle = '#82ccdd'; ctx.fillRect(2, -4, 4, 8); // Janela
+                }
+                ctx.restore();
+            });
+
+            // Balas
+            ctx.fillStyle = '#ffff00';
+            ctx.shadowColor = '#ffaa00';
+            ctx.shadowBlur = 10;
+            bullets.forEach(b => {
+                ctx.beginPath(); ctx.ellipse(b.x, b.y, 3, 8, 0, 0, Math.PI*2); ctx.fill();
+            });
+            ctx.shadowBlur = 0; // Reset
+
+            // Jogador (Jato Avançado)
+            if (gameState === 'PLAYING' || gameState === 'VICTORY') {
+                ctx.save();
+                ctx.translate(player.x, player.y);
+                
+                // Rotação subtil ao virar
+                ctx.rotate(player.bank * 0.3);
+
+                // Fogo do propulsor
+                ctx.globalCompositeOperation = 'screen';
+                let thrustH = 10 + Math.random() * 10;
+                let thrustGrad = ctx.createLinearGradient(0, player.h/2, 0, player.h/2 + thrustH);
+                thrustGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                thrustGrad.addColorStop(0.3, 'rgba(255, 200, 0, 0.8)');
+                thrustGrad.addColorStop(1, 'rgba(255, 0, 0, 0)');
+                ctx.fillStyle = thrustGrad;
+                ctx.beginPath(); ctx.moveTo(-4, player.h/2); ctx.lineTo(4, player.h/2); ctx.lineTo(0, player.h/2 + thrustH); ctx.fill();
+                ctx.globalCompositeOperation = 'source-over';
+
+                // Fuselagem
+                let jGrad = ctx.createLinearGradient(-10, 0, 10, 0);
+                jGrad.addColorStop(0, '#d4af37'); jGrad.addColorStop(0.5, '#fff1b0'); jGrad.addColorStop(1, '#aa8822');
+                ctx.fillStyle = jGrad;
+                
+                // Bico e Corpo
+                ctx.beginPath(); ctx.moveTo(0, -player.h/2 - 5); ctx.lineTo(6, -player.h/4); 
+                ctx.lineTo(6, player.h/2); ctx.lineTo(-6, player.h/2); ctx.lineTo(-6, -player.h/4); ctx.fill();
+
+                // Asas (Com distorção ao curvar)
+                let wingShrinkLeft = player.bank < 0 ? 0.6 : 1;
+                let wingShrinkRight = player.bank > 0 ? 0.6 : 1;
+                
+                ctx.fillStyle = '#bfa145';
+                ctx.beginPath(); ctx.moveTo(-6, -5); ctx.lineTo(-20 * wingShrinkLeft, 5); ctx.lineTo(-20 * wingShrinkLeft, 10); ctx.lineTo(-6, 12); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(6, -5); ctx.lineTo(20 * wingShrinkRight, 5); ctx.lineTo(20 * wingShrinkRight, 10); ctx.lineTo(6, 12); ctx.fill();
+                
+                // Estabilizadores traseiros
+                ctx.fillStyle = '#aa8822';
+                ctx.beginPath(); ctx.moveTo(-5, 10); ctx.lineTo(-12, 16); ctx.lineTo(-5, 16); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(5, 10); ctx.lineTo(12, 16); ctx.lineTo(5, 16); ctx.fill();
+
+                // Cockpit
+                let cGrad = ctx.createLinearGradient(0, -10, 0, 5);
+                cGrad.addColorStop(0, '#00ffff'); cGrad.addColorStop(1, '#003366');
+                ctx.fillStyle = cGrad;
+                ctx.beginPath(); ctx.ellipse(0, -4, 3, 7, 0, 0, Math.PI*2); ctx.fill();
+
+                // Feedback de Abastecimento (Anel Mágico em volta)
+                if (player.isRefueling) {
+                    ctx.globalCompositeOperation = 'screen';
+                    ctx.strokeStyle = `rgba(100, 255, 100, ${0.5 + Math.sin(frames*0.5)*0.5})`;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(0, 0, 25, 0, Math.PI*2); ctx.stroke();
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+                
+                ctx.restore();
+            }
+
+            // Partículas (Explosões e Fumo)
+            ctx.globalCompositeOperation = 'screen'; // Blend mode para efeitos luminosos
+            particles.forEach(p => {
+                let pRatio = p.life / p.maxLife;
+                if (p.type === 'fire') {
+                    ctx.fillStyle = `rgba(255, ${Math.floor(pRatio * 200)}, 0, ${pRatio})`;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+                } else if (p.type === 'smoke') {
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.fillStyle = `rgba(100, 100, 100, ${pRatio * 0.5})`;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+                    ctx.globalCompositeOperation = 'screen';
+                } else { // Debris
+                    ctx.fillStyle = `rgba(255, 255, 255, ${pRatio})`;
+                    ctx.fillRect(p.x, p.y, p.size, p.size);
+                }
+            });
+            ctx.globalCompositeOperation = 'source-over';
+
+            // --- UI 32-BIT ---
+            drawUI();
+
+            // Telas de Estado
+            if (gameState === 'PLAYING' && frames % 120 < 80) { // Piscar suave
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.font = 'bold 24px Arial';
+                ctx.textAlign = 'center';
+                ctx.shadowColor = 'black'; ctx.shadowBlur = 4;
+                ctx.fillText(`FASE ${level}/${MAX_LEVELS}`, canvas.width/2, 40);
+                ctx.shadowBlur = 0;
+            }
+
+            if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') {
+                ctx.fillStyle = 'rgba(10, 15, 25, 0.8)'; 
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.textAlign = 'center';
+                ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                ctx.shadowBlur = 8;
+                ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+
+                if (gameState === 'START') {
+                    let titleGrad = ctx.createLinearGradient(0, canvas.height/2 - 100, 0, canvas.height/2 - 40);
+                    titleGrad.addColorStop(0, '#ffcc00'); titleGrad.addColorStop(1, '#ff6600');
+                    ctx.fillStyle = titleGrad;
+                    ctx.font = 'bold 60px Arial';
+                    ctx.fillText('RIVER RAID 32-BIT', canvas.width/2, canvas.height/2 - 60);
+                    
+                    ctx.fillStyle = '#fff'; ctx.font = '24px Arial';
+                    ctx.fillText('Destrua pontes para avançar', canvas.width/2, canvas.height/2);
+                    ctx.fillStyle = '#00ffcc'; ctx.font = '28px Arial';
+                    ctx.fillText('Objetivo: 10 FASES', canvas.width/2, canvas.height/2 + 50);
+                    
+                    // Botão intermitente
+                    ctx.fillStyle = `rgba(255, 255, 255, ${0.5 + Math.sin(frames*0.1)*0.5})`;
+                    ctx.font = '24px Arial';
+                    ctx.fillText('Pressione ESPAÇO ou AÇÃO', canvas.width/2, canvas.height/2 + 120);
+                } else if (gameState === 'GAMEOVER') {
+                    ctx.fillStyle = '#ff3333'; ctx.font = 'bold 60px Arial';
+                    ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 - 50);
+                    ctx.fillStyle = '#fff'; ctx.font = '28px Arial';
+                    ctx.fillText(`Fase Atingida: ${level}`, canvas.width/2, canvas.height/2 + 10);
+                    ctx.fillStyle = '#ffcc00'; ctx.font = '32px Arial';
+                    ctx.fillText(`Pontuação: ${score}`, canvas.width/2, canvas.height/2 + 60);
+                    ctx.fillStyle = '#aaa'; ctx.font = '20px Arial';
+                    ctx.fillText('Pressione ESPAÇO', canvas.width/2, canvas.height/2 + 130);
+                } else if (gameState === 'VICTORY') {
+                    ctx.fillStyle = '#33ff33'; ctx.font = 'bold 50px Arial';
+                    ctx.fillText('MISSÃO CUMPRIDA!', canvas.width/2, canvas.height/2 - 50);
+                    ctx.fillStyle = '#fff'; ctx.font = '28px Arial';
+                    ctx.fillText(`Você venceu as 10 Fases!`, canvas.width/2, canvas.height/2 + 10);
+                    ctx.fillStyle = '#ffcc00'; ctx.font = '36px Arial';
+                    ctx.fillText(`Score: ${score}`, canvas.width/2, canvas.height/2 + 70);
+                    ctx.fillStyle = '#aaa'; ctx.font = '20px Arial';
+                    ctx.fillText('Pressione ESPAÇO', canvas.width/2, canvas.height/2 + 130);
+                }
+                ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; // Reset
+            }
+        }
+
+        function drawUI() {
+            const uiY = canvas.height - 80;
+            
+            // Fundo da UI (Estilo painel metálico)
+            let uiGrad = ctx.createLinearGradient(0, uiY, 0, canvas.height);
+            uiGrad.addColorStop(0, '#333'); uiGrad.addColorStop(1, '#111');
+            ctx.fillStyle = uiGrad; 
+            ctx.fillRect(0, uiY, canvas.width, 80);
+            
+            // Borda de divisão
+            ctx.fillStyle = '#666'; ctx.fillRect(0, uiY, canvas.width, 4);
+            ctx.fillStyle = '#000'; ctx.fillRect(0, uiY+4, canvas.width, 2);
+
+            ctx.shadowColor = 'black'; ctx.shadowBlur = 4;
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 28px Arial'; ctx.textAlign = 'center';
+            
+            // Ícone de Vidas (Mini Jato) e Contador
+            ctx.fillStyle = '#d4af37';
+            ctx.beginPath(); ctx.moveTo(45, uiY + 50); ctx.lineTo(60, uiY + 65); ctx.lineTo(30, uiY + 65); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.fillText(`x ${lives}`, 90, uiY + 65);
+
+            // Indicador de Combustível Avançado
+            const gaugeW = 300; const gaugeH = 24;
+            const gaugeX = canvas.width / 2 - gaugeW / 2; const gaugeY = uiY + 30;
+            
+            // Fundo do medidor
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#111'; ctx.fillRect(gaugeX, gaugeY, gaugeW, gaugeH);
+            ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.strokeRect(gaugeX, gaugeY, gaugeW, gaugeH);
+            
+            // Gradiente do combustível dependendo do nível
+            let fuelColor = '#00ff00';
+            if (fuel < 25) fuelColor = (frames % 20 < 10) ? '#ff0000' : '#550000'; // Pisca se estiver a acabar
+            else if (fuel < 50) fuelColor = '#ffcc00';
+
+            let fuelPos = Math.max(0, (fuel / 100) * gaugeW);
+            ctx.fillStyle = fuelColor; 
+            ctx.fillRect(gaugeX + 1, gaugeY + 1, fuelPos - 2, gaugeH - 2);
+
+            // Grelha sobre o medidor (estilo retro avançado)
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            for(let i=20; i<gaugeW; i+=20) ctx.fillRect(gaugeX + i, gaugeY, 2, gaugeH);
+
+            ctx.shadowBlur = 4;
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 20px Arial';
+            ctx.fillText('E', gaugeX - 20, gaugeY + 20);
+            ctx.fillText('F', gaugeX + gaugeW + 20, gaugeY + 20);
+
+            // Score
+            ctx.fillStyle = '#00ffcc'; ctx.font = 'bold 32px Arial';
+            ctx.textAlign = 'right';
+            ctx.fillText(score.toString().padStart(6, '0'), canvas.width - 40, uiY + 55);
+            ctx.shadowBlur = 0;
+        }
+
+        // --- LOOP PRINCIPAL ---
+        function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+
+        // --- EVENT LISTENER ---
+        window.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.code)) {
+                keys[e.code] = true;
+                if(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault(); 
+            }
+            if (e.code === 'Space') {
+                initAudio();
+                if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') resetGame();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.code)) keys[e.code] = false; });
+
+        canvas.addEventListener('pointerdown', (e) => {
+            initAudio();
+            if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') resetGame();
+        });
+
+        const bindTouch = (btn, key) => {
+            btn.addEventListener('pointerdown', (e) => { e.preventDefault(); keys[key] = true; initAudio(); });
+            btn.addEventListener('pointerup', (e) => { e.preventDefault(); keys[key] = false; });
+            btn.addEventListener('pointercancel', (e) => { e.preventDefault(); keys[key] = false; });
+        };
+
+        bindTouch(document.getElementById('btn-left'), 'ArrowLeft');
+        bindTouch(document.getElementById('btn-right'), 'ArrowRight');
+        bindTouch(document.getElementById('btn-up'), 'ArrowUp');
+        bindTouch(document.getElementById('btn-down'), 'ArrowDown');
+        
+        let btnFire = document.getElementById('btn-fire');
+        btnFire.addEventListener('pointerdown', (e) => { 
+            e.preventDefault(); initAudio(); keys['Space'] = true; 
+            if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'VICTORY') resetGame();
+        });
+        btnFire.addEventListener('pointerup', (e) => { e.preventDefault(); keys['Space'] = false; });
+        btnFire.addEventListener('pointercancel', (e) => { e.preventDefault(); keys['Space'] = false; });
+
+        initTerrain();
+        gameLoop();
+
+    </script>
+</body>
+</html>

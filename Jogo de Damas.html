@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Damas Ultra 64 - 16:9 Madeira Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script> 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background: radial-gradient(circle, #0f0c29, #302b63, #24243e);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Moldura com proporção 16:9 */
+        #main-frame {
+            background: rgba(0, 0, 0, 0.92);
+            backdrop-filter: blur(15px);
+            border: 2px solid rgba(0, 210, 255, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 80px rgba(0, 210, 255, 0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            
+            /* Definição de Proporção 16:9 */
+            width: 95vw;
+            max-width: 1100px;
+            aspect-ratio: 16 / 9;
+            position: relative;
+        }
+
+        #score-board {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            padding: 8px 20px;
+            background: rgba(0, 210, 255, 0.1);
+            border-radius: 5px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            border: 1px solid rgba(0, 210, 255, 0.5);
+            font-size: 0.9rem;
+        }
+
+        /* Tabuleiro - Mantido quadrado dentro do contentor 16:9 */
+        #board-container {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-height: 70%; /* Garante espaço para UI em cima e em baixo */
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            height: 100%;
+            aspect-ratio: 1 / 1;
+            background: #2b1d1a;
+            border: 10px solid #4e342e;
+            border-radius: 4px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8), inset 0 0 30px rgba(0,0,0,0.5);
+        }
+
+        .square {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .square.dark { 
+            background-color: #5d4037;
+            background-image: linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)),
+                              repeating-linear-gradient(45deg, rgba(0,0,0,0.05) 0, rgba(0,0,0,0.05) 1px, transparent 1px, transparent 8px);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+        
+        .square.light { 
+            background-color: #d7ccc8;
+            background-image: repeating-linear-gradient(-45deg, rgba(255,255,255,0.05) 0, rgba(255,255,255,0.05) 1px, transparent 1px, transparent 12px);
+            box-shadow: inset 0 0 5px rgba(255,255,255,0.3);
+        }
+
+        .piece {
+            width: 82%;
+            height: 82%;
+            border-radius: 50%;
+            cursor: pointer;
+            position: relative;
+            z-index: 10;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.8);
+        }
+
+        .piece.player1 { background: radial-gradient(circle at 35% 35%, #444, #000 85%); border: 1.5px solid #000; }
+        .piece.player2 { background: radial-gradient(circle at 35% 35%, #fff, #bdc3c7 85%); border: 1.5px solid #aaa; }
+
+        .piece.selected {
+            transform: scale(1.1) translateY(-5px);
+            box-shadow: 0 15px 25px #00d2ff;
+            border-color: #00d2ff;
+        }
+
+        .must-move { animation: pulse-capture 0.7s infinite alternate; }
+
+        @keyframes pulse-capture {
+            from { box-shadow: 0 0 5px #ff0055; border-color: #ff0055; }
+            to { box-shadow: 0 0 25px #ff0055, 0 0 35px #ff4d88; border-color: #ff4d88; }
+        }
+
+        .king::after { content: "👑"; font-size: 1.2rem; filter: drop-shadow(0 2px 3px #000); }
+
+        .highlight {
+            position: absolute;
+            width: 40%;
+            height: 40%;
+            border-radius: 50%;
+            background: rgba(0, 210, 255, 0.6);
+            box-shadow: 0 0 15px #00d2ff;
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        .highlight.capture { background: rgba(255, 0, 85, 0.7); box-shadow: 0 0 15px #ff0055; width: 50%; height: 50%; }
+
+        #message-area {
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 0.85rem;
+            color: #00d2ff;
+            text-shadow: 0 0 8px rgba(0, 210, 255, 0.6);
+            font-weight: bold;
+        }
+
+        #reset-button {
+            background: linear-gradient(135deg, #00d2ff, #3a7bd5);
+            color: white;
+            padding: 10px 30px;
+            border-radius: 50px;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            box-shadow: 0 5px 15px rgba(58, 123, 213, 0.4);
+            letter-spacing: 1px;
+            font-size: 0.8rem;
+        }
+
+        #reset-button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(58, 123, 213, 0.6); }
+
+        .footer-info {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            font-size: 0.65rem;
+            color: #777;
+            margin-top: 5px;
+        }
+
+        /* Ajuste para ecrãs pequenos ou proporções diferentes da janela */
+        @media (max-aspect-ratio: 16/9) {
+            #main-frame {
+                aspect-ratio: auto;
+                height: auto;
+                width: 95vw;
+            }
+            #board {
+                width: 80vw;
+                height: 80vw;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="main-frame">
+        <div id="score-board">
+            <span>HUMANO: <span id="p1-score">0</span></span>
+            <span>FASE <span id="current-phase">1</span>/7</span>
+            <span>CPU: <span id="p2-score">0</span></span>
+        </div>
+
+        <div id="message-area">SISTEMA PANORÂMICO 16:9 ACTIVADO</div>
+
+        <div id="board-container">
+            <div id="board"></div>
+        </div>
+
+        <div class="flex flex-col items-center w-full">
+            <button id="reset-button">Iniciar Fase 1</button>
+            <div class="footer-info">
+                <span>ULTRA 64 ENGINE</span>
+                <span>PROPORÇÃO CINEMÁTICA</span>
+                <span>HD WOOD TEXTURE</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Referências DOM ---
+        const boardEl = document.getElementById('board');
+        const messageArea = document.getElementById('message-area');
+        const p1ScoreEl = document.getElementById('p1-score');
+        const p2ScoreEl = document.getElementById('p2-score');
+        const phaseEl = document.getElementById('current-phase');
+        const resetButton = document.getElementById('reset-button');
+
+        // --- Estado do Jogo ---
+        const ROWS = 8, COLS = 8;
+        const TOTAL_PHASES = 7;
+        let board = [];
+        let currentPlayer = 1; 
+        let selected = null;
+        let playerWins = 0, cpuWins = 0;
+        let currentPhase = 1;
+        let p1Pieces = 12, p2Pieces = 12;
+        let gameActive = false;
+        let challengeCompleted = false;
+
+        // --- Áudio ---
+        const moveSynth = new Tone.MembraneSynth().toDestination();
+        const captureSynth = new Tone.NoiseSynth().toDestination();
+
+        async function initAudio() {
+            if (Tone.context.state !== 'running') await Tone.start();
+        }
+
+        function playSound(type) {
+            try {
+                if (type === 'move') moveSynth.triggerAttackRelease("C2", "8n");
+                else captureSynth.triggerAttackRelease("4n");
+            } catch(e) {}
+        }
+
+        // --- Lógica Principal ---
+        function initBoard() {
+            board = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if ((r + c) % 2 !== 0) {
+                        if (r < 3) board[r][c] = 2; 
+                        else if (r > 4) board[r][c] = 1; 
+                    }
+                }
+            }
+            render();
+        }
+
+        function render() {
+            boardEl.innerHTML = '';
+            const player1HasCapture = hasAnyCapture(1);
+            
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const square = document.createElement('div');
+                    square.className = `square ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+                    
+                    const val = board[r][c];
+                    if (val !== 0) {
+                        const piece = document.createElement('div');
+                        const isKing = val % 1 !== 0;
+                        const pOwner = Math.floor(val);
+                        piece.className = `piece ${pOwner === 1 ? 'player1' : 'player2'} ${isKing ? 'king' : ''}`;
+                        
+                        if (gameActive && pOwner === 1 && player1HasCapture) {
+                            if (getValidMoves(r, c).some(m => m.isCapture)) {
+                                piece.classList.add('must-move');
+                            }
+                        }
+
+                        if (selected && selected.r === r && selected.c === c) piece.classList.add('selected');
+                        
+                        piece.onclick = (e) => {
+                            e.stopPropagation();
+                            onPieceClick(r, c);
+                        };
+                        square.appendChild(piece);
+                    }
+                    
+                    square.onclick = () => onSquareClick(r, c);
+                    boardEl.appendChild(square);
+                }
+            }
+            
+            if (selected) {
+                const moves = getValidMoves(selected.r, selected.c);
+                moves.forEach(m => {
+                    const idx = m.toRow * COLS + m.toCol;
+                    const h = document.createElement('div');
+                    h.className = `highlight ${m.isCapture ? 'capture' : ''}`;
+                    boardEl.children[idx].appendChild(h);
+                });
+            }
+        }
+
+        function onPieceClick(r, c) {
+            if (!gameActive || challengeCompleted || currentPlayer !== 1) return;
+            if (Math.floor(board[r][c]) !== 1) return;
+            initAudio();
+            
+            const moves = getValidMoves(r, c);
+            const p1HasCapture = hasAnyCapture(1);
+
+            if (selected && selected.r === r && selected.c === c) {
+                selected = null;
+            } else {
+                if (p1HasCapture && !moves.some(m => m.isCapture)) {
+                    messageArea.textContent = "CAPTURA OBRIGATÓRIA DETECTADA!";
+                    selected = null;
+                } else if (moves.length === 0) {
+                    messageArea.textContent = "ESTA PEÇA NÃO PODE MOVER!";
+                    selected = null;
+                } else {
+                    selected = { r, c };
+                    updateStatus();
+                }
+            }
+            render();
+        }
+
+        function onSquareClick(r, c) {
+            if (selected) {
+                const moves = getValidMoves(selected.r, selected.c);
+                const move = moves.find(m => m.toRow === r && m.toCol === c);
+                if (move) {
+                    executeMove(selected.r, selected.c, r, c, move.capture);
+                } else {
+                    selected = null;
+                    render();
+                }
+            }
+        }
+
+        async function executeMove(fr, fc, tr, tc, cap) {
+            const type = board[fr][fc];
+            board[tr][tc] = type;
+            board[fr][fc] = 0;
+
+            if (cap) {
+                board[cap.row][cap.col] = 0;
+                if (currentPlayer === 1) p2Pieces--; else p1Pieces--;
+                playSound('capture');
+            } else {
+                playSound('move');
+            }
+
+            if (Math.floor(type) === 1 && tr === 0) board[tr][tc] = 1.5;
+            if (Math.floor(type) === 2 && tr === 7) board[tr][tc] = 2.5;
+
+            selected = null;
+            render();
+
+            if (checkPhaseOver()) return;
+
+            if (cap) {
+                const next = getValidMoves(tr, tc).filter(m => m.isCapture);
+                if (next.length > 0) {
+                    selected = { r: tr, c: tc };
+                    render();
+                    messageArea.textContent = "SEQUÊNCIA DE CAPTURA!";
+                    if (currentPlayer === 2) {
+                        setTimeout(() => {
+                            const cpuNext = getValidMoves(tr, tc).filter(m => m.isCapture)[0];
+                            executeMove(tr, tc, cpuNext.toRow, cpuNext.toCol, cpuNext.capture);
+                        }, 500);
+                    }
+                    return;
+                }
+            }
+
+            currentPlayer = currentPlayer === 1 ? 2 : 1;
+            updateStatus();
+            
+            if (currentPlayer === 2 && gameActive) {
+                const thinkTime = Math.max(200, 1000 - (currentPhase * 100));
+                setTimeout(cpuMove, thinkTime);
+            }
+        }
+
+        function getValidMoves(r, c) {
+            const type = board[r][c];
+            if (type === 0) return [];
+            const player = Math.floor(type);
+            const isKing = type % 1 !== 0;
+            const dirs = isKing ? [[1,1],[1,-1],[-1,1],[-1,-1]] : (player === 1 ? [[-1,1],[-1,-1]] : [[1,1],[1,-1]]);
+            const captures = [];
+            dirs.forEach(d => {
+                const tr = r + d[0], tc = c + d[1], jr = tr + d[0], jc = tc + d[1];
+                if (jr >= 0 && jr < 8 && jc >= 0 && jc < 8) {
+                    if (board[tr][tc] !== 0 && Math.floor(board[tr][tc]) !== player && board[jr][jc] === 0) {
+                        captures.push({ toRow: jr, toCol: jc, isCapture: true, capture: { row: tr, col: tc } });
+                    }
+                }
+            });
+            if (captures.length > 0) return captures;
+            if (hasAnyCapture(player)) return [];
+            const moves = [];
+            dirs.forEach(d => {
+                const tr = r + d[0], tc = c + d[1];
+                if (tr >= 0 && tr < 8 && tc >= 0 && tc < 8 && board[tr][tc] === 0) {
+                    moves.push({ toRow: tr, toCol: tc, isCapture: false });
+                }
+            });
+            return moves;
+        }
+
+        function hasAnyCapture(p) {
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (Math.floor(board[r][c]) === p) {
+                        const type = board[r][c], king = type % 1 !== 0;
+                        const dirs = king ? [[1,1],[1,-1],[-1,1],[-1,-1]] : (p === 1 ? [[-1,1],[-1,-1]] : [[1,1],[1,-1]]);
+                        for (let d of dirs) {
+                            const tr = r + d[0], tc = c + d[1], jr = tr + d[0], jc = tc + d[1];
+                            if (jr >= 0 && jr < 8 && jc >= 0 && jc < 8) {
+                                if (board[tr][tc] !== 0 && Math.floor(board[tr][tc]) !== p && board[jr][jc] === 0) return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function cpuMove() {
+            if (!gameActive || challengeCompleted) return;
+            const allPieces = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (Math.floor(board[r][c]) === 2) allPieces.push({ r, c });
+                }
+            }
+            let captureMoves = [], normalMoves = [];
+            allPieces.forEach(p => {
+                getValidMoves(p.r, p.c).forEach(m => {
+                    const fm = { fr: p.r, fc: p.c, ...m };
+                    if (m.isCapture) captureMoves.push(fm); else normalMoves.push(fm);
+                });
+            });
+            let best;
+            if (captureMoves.length > 0) best = captureMoves[Math.floor(Math.random() * captureMoves.length)];
+            else if (normalMoves.length > 0) {
+                if (currentPhase > 4) { normalMoves.sort((a,b) => b.toRow - a.toRow); best = normalMoves[0]; }
+                else best = normalMoves[Math.floor(Math.random() * normalMoves.length)];
+            }
+            if (best) executeMove(best.fr, best.fc, best.toRow, best.toCol, best.capture);
+        }
+
+        function checkPhaseOver() {
+            const p1 = canPlayerMove(1), p2 = canPlayerMove(2);
+            if (p2Pieces === 0 || !p2) { finishPhase(1); return true; }
+            if (p1Pieces === 0 || !p1) { finishPhase(2); return true; }
+            return false;
+        }
+
+        function canPlayerMove(p) {
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (Math.floor(board[r][c]) === p && getValidMoves(r, c).length > 0) return true;
+                }
+            }
+            return false;
+        }
+
+        function finishPhase(winner) {
+            gameActive = false;
+            if (winner === 1) {
+                playerWins++;
+                messageArea.textContent = `FASE ${currentPhase} CONQUISTADA!`;
+                if (currentPhase < TOTAL_PHASES) {
+                    currentPhase++;
+                    resetButton.textContent = `Fase Seguinte: ${currentPhase}`;
+                } else {
+                    challengeCompleted = true;
+                    messageArea.textContent = "MESTRE SUPREMO DAS DAMAS!";
+                    resetButton.textContent = "REINICIAR TUDO";
+                }
+            } else {
+                cpuWins++;
+                messageArea.textContent = `DERROTA NA FASE ${currentPhase}!`;
+                resetButton.textContent = "REPETIR FASE";
+            }
+            updateUI();
+        }
+
+        function updateStatus() {
+            if (!gameActive) return;
+            if (currentPlayer === 1) {
+                messageArea.textContent = hasAnyCapture(1) ? "PRIORIDADE: CAPTURAR!" : `FASE ${currentPhase}: TUA VEZ`;
+            } else { messageArea.textContent = "CPU A CALCULAR ROTA..."; }
+        }
+
+        function updateUI() {
+            p1ScoreEl.textContent = playerWins;
+            p2ScoreEl.textContent = cpuWins;
+            phaseEl.textContent = currentPhase;
+        }
+
+        function startMatch() {
+            initAudio();
+            if (challengeCompleted) { playerWins = 0; cpuWins = 0; currentPhase = 1; challengeCompleted = false; }
+            gameActive = true; p1Pieces = 12; p2Pieces = 12;
+            currentPlayer = 1; selected = null;
+            initBoard(); updateStatus(); updateUI();
+            resetButton.textContent = `Reiniciar Ronda`;
+        }
+
+        resetButton.onclick = startMatch;
+        updateUI();
+    </script>
+</body>
+</html>

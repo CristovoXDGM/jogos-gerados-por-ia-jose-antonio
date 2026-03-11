@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Spy Racer - Custom Red 53</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050505;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            color: white;
+            font-family: 'Impact', 'Arial Black', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 0 8px #000, 0 0 60px rgba(255,0,100,0.3);
+            border: 4px solid #00f2ff;
+            border-radius: 4px;
+            overflow: hidden;
+            width: 800px;
+            height: 450px;
+        }
+
+        canvas {
+            display: block;
+            background-color: #0a0a0a;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui-overlay {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+
+        .stat-box {
+            background: #000;
+            padding: 8px 20px;
+            border: 3px solid #fff;
+            color: #fff;
+            transform: skew(-15deg);
+            box-shadow: 5px 5px 0px #ff0066;
+        }
+
+        .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #00f2ff; }
+        .stat-value { font-size: 24px; font-weight: 900; }
+
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: #ff0066;
+            color: #fff;
+            padding: 40px;
+            border: 6px solid #000;
+            display: none;
+            width: 350px;
+            box-shadow: 15px 15px 0px #00f2ff;
+            z-index: 20;
+        }
+
+        #level-up-msg {
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%) skew(-10deg);
+            font-size: 60px;
+            font-weight: 900;
+            color: #fff;
+            text-shadow: 4px 4px 0px #ff0066, -4px -4px 0px #00f2ff;
+            display: none;
+            pointer-events: none;
+            z-index: 15;
+        }
+
+        button {
+            background: #fff;
+            color: #000;
+            border: 4px solid #000;
+            padding: 15px 40px;
+            font-weight: 900;
+            font-size: 20px;
+            text-transform: uppercase;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: 0.1s;
+        }
+
+        button:hover { background: #00f2ff; transform: scale(1.1) skew(-5deg); }
+
+        #touch-controls {
+            display: none;
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            justify-content: space-between;
+            padding: 0 40px;
+            box-sizing: border-box;
+            pointer-events: none;
+        }
+
+        .btn {
+            width: 80px;
+            height: 80px;
+            background: rgba(255,255,255,0.9);
+            border: 4px solid #000;
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            box-shadow: 6px 6px 0px #ff0066;
+        }
+
+        @media (max-width: 850px) {
+            #game-container {
+                width: 95vw;
+                height: 53.43vw;
+            }
+            #touch-controls { display: flex; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui-overlay">
+            <div class="stat-box">
+                <div class="stat-label" id="level-label">FASE 1</div>
+                <div class="stat-value" id="score">000000</div>
+            </div>
+            <div class="stat-box" style="box-shadow: 5px 5px 0px #00f2ff;">
+                <div class="stat-label">ARMADURA</div>
+                <div class="stat-value" id="health" style="color: #ff0066;">100%</div>
+            </div>
+        </div>
+
+        <div id="level-up-msg">MAX POWER!</div>
+
+        <div id="message">
+            <h1 id="msg-title" style="margin-top:0; font-size: 42px; text-transform: uppercase; font-style: italic;">SPY RACER</h1>
+            <p id="msg-text" style="font-weight: bold; letter-spacing: 1px;">RED OVERDRIVE - CAR 53</p>
+            <button onclick="startGame()">START</button>
+        </div>
+
+        <div id="touch-controls">
+            <div style="display: flex; gap: 20px;">
+                <div class="btn" id="btn-left"><svg width="40" height="40" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="#000"/></svg></div>
+                <div class="btn" id="btn-right"><svg width="40" height="40" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" fill="#000"/></svg></div>
+            </div>
+            <div class="btn" id="btn-shoot" style="background: #ff0066;">
+                <svg width="40" height="40" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="#fff"/></svg>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const healthEl = document.getElementById('health');
+        const levelLabel = document.getElementById('level-label');
+        const levelUpMsg = document.getElementById('level-up-msg');
+        const messageEl = document.getElementById('message');
+
+        const W = 800;
+        const H = 450;
+        canvas.width = W;
+        canvas.height = H;
+
+        let gameActive = false;
+        let score = 0;
+        let health = 100;
+        let level = 1;
+        let roadOffset = 0;
+        let frameCount = 0;
+        let levelUpTimer = 0;
+
+        const CPU_COLORS = ['#3366ff', '#33cc33', '#9933ff', '#ff9933', '#00cccc', '#cc3366'];
+
+        let audioCtx, engineOsc, engineGain;
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            engineOsc = audioCtx.createOscillator();
+            engineGain = audioCtx.createGain();
+            engineOsc.type = 'sawtooth';
+            engineOsc.frequency.setValueAtTime(45, audioCtx.currentTime);
+            engineGain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+            engineOsc.connect(engineGain);
+            engineGain.connect(audioCtx.destination);
+            engineOsc.start();
+        }
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            if (type === 'shoot') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+            } else if (type === 'exp') {
+                const duration = 0.4;
+                const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * duration, audioCtx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+                const noise = audioCtx.createBufferSource(); noise.buffer = buffer;
+                const nGain = audioCtx.createGain(); nGain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                noise.connect(nGain); nGain.connect(audioCtx.destination);
+                noise.start();
+            }
+        }
+
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        const touchBtns = { left: false, right: false, shoot: false };
+        const setupTouch = (id, key) => {
+            const btn = document.getElementById(id);
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); touchBtns[key] = true; });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); touchBtns[key] = false; });
+        };
+        setupTouch('btn-left', 'left'); setupTouch('btn-right', 'right'); setupTouch('btn-shoot', 'shoot');
+
+        let player = { x: W/2 - 20, y: H - 100, w: 40, h: 72, speed: 8 };
+        let bullets = [], enemies = [], particles = [], roadside = [], speedLines = [];
+
+        function init() {
+            player.x = W/2 - 20;
+            player.y = H - 100;
+            bullets = []; enemies = []; particles = []; roadside = []; speedLines = [];
+            score = 0; health = 100; level = 1; frameCount = 0; gameActive = true;
+            messageEl.style.display = 'none';
+            levelLabel.innerText = "FASE 1";
+            for(let i = 0; i < H + 120; i += 60) roadside.push({ y: i - 120 });
+            initAudio();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function createExplosion(x, y, count, isHeli) {
+            for(let i = 0; i < count; i++) {
+                particles.push({
+                    x, y, vx: (Math.random()-0.5)*20, vy: (Math.random()-0.5)*20,
+                    life: 1, color: isHeli ? '#00f2ff' : (Math.random() > 0.5 ? '#ff0066' : '#fff'),
+                    size: 8 + Math.random() * 12
+                });
+            }
+        }
+
+        function update() {
+            if (!gameActive) return;
+
+            if (level === 1 && score >= 2000) {
+                level = 2;
+                levelLabel.innerText = "FASE 2";
+                levelUpTimer = 120;
+                levelUpMsg.style.display = 'block';
+                playSound('exp');
+            }
+
+            if (levelUpTimer > 0) {
+                levelUpTimer--;
+                if (levelUpTimer === 0) levelUpMsg.style.display = 'none';
+            }
+
+            let moving = false;
+            if ((keys['ArrowLeft'] || touchBtns.left) && player.x > 160) { player.x -= player.speed; moving = true; }
+            if ((keys['ArrowRight'] || touchBtns.right) && player.x < W - 160 - player.w) { player.x += player.speed; moving = true; }
+            
+            if (engineOsc) engineOsc.frequency.setTargetAtTime(moving ? 65 : 45, audioCtx.currentTime, 0.1);
+            if ((keys['Space'] || touchBtns.shoot) && frameCount % 8 === 0) {
+                bullets.push({ x: player.x + player.w/2 - 4, y: player.y, w: 8, h: 20 });
+                playSound('shoot');
+            }
+
+            let scrollSpeed = level === 1 ? 12 : 18;
+            roadOffset += scrollSpeed;
+            roadside.forEach(s => { s.y += scrollSpeed; if (s.y > H) s.y = -60; });
+
+            if (frameCount % 4 === 0) {
+                speedLines.push({ x: Math.random() * W, y: -100, h: 40 + Math.random() * 100 });
+            }
+            speedLines.forEach((l, i) => { l.y += scrollSpeed * 2; if(l.y > H + 100) speedLines.splice(i, 1); });
+
+            bullets.forEach((b, i) => { b.y -= 20; if (b.y < -20) bullets.splice(i, 1); });
+
+            let spawnFreq = level === 1 ? 40 : 25;
+            if (frameCount % spawnFreq === 0) {
+                const type = Math.random() > 0.8 ? 'heli' : 'car';
+                enemies.push({
+                    x: 180 + Math.random() * (W - 360), y: -120,
+                    w: type === 'heli' ? 68 : 42, h: type === 'heli' ? 84 : 72,
+                    type, speed: (type === 'heli' ? 3 : 6 + Math.random() * 5) * (level === 1 ? 1 : 1.3),
+                    hp: type === 'heli' ? (level === 1 ? 6 : 10) : 1, rot: 0,
+                    color: CPU_COLORS[Math.floor(Math.random() * CPU_COLORS.length)]
+                });
+            }
+
+            enemies.forEach((e, i) => {
+                e.y += e.speed;
+                if (e.type === 'heli') e.rot += 0.6;
+
+                bullets.forEach((b, bi) => {
+                    if (b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
+                        e.hp--; bullets.splice(bi, 1);
+                        if (e.hp <= 0) {
+                            playSound('exp');
+                            createExplosion(e.x + e.w/2, e.y + e.h/2, 15, e.type === 'heli');
+                            enemies.splice(i, 1); score += e.type === 'heli' ? 500 : 100;
+                        }
+                    }
+                });
+
+                if (player.x < e.x + e.w && player.x + player.w > e.x && player.y < e.y + e.h && player.y + player.h > e.y) {
+                    health -= 1.5;
+                    if (frameCount % 8 === 0) playSound('exp');
+                    if (health <= 0) gameOver();
+                }
+                if (e.y > H + 150) enemies.splice(i, 1);
+            });
+
+            particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy; p.life -= 0.05;
+                if (p.life <= 0) particles.splice(i, 1);
+            });
+
+            scoreEl.innerText = score.toString().padStart(6, '0');
+            healthEl.innerText = Math.max(0, Math.ceil(health)) + "%";
+            frameCount++;
+        }
+
+        function drawAnimeCar(x, y, w, h, color, isPlayer) {
+            ctx.save();
+            ctx.fillStyle = '#000';
+            ctx.beginPath(); ctx.roundRect(x - 4, y - 4, w + 8, h + 8, 10); ctx.fill();
+            
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.fill();
+
+            // Sombras Anime
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(x + w * 0.65, y, w * 0.35, h);
+
+            if (isPlayer) {
+                // Duas Listras Brancas (Racing Stripes)
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(x + 8, y, 6, h); // Lista esquerda
+                ctx.fillRect(x + w - 14, y, 6, h); // Lista direita
+                
+                // Círculo para o Número 53
+                ctx.fillStyle = '#fff';
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(x + w/2, y + h/2, 13, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                
+                // Número 53
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 15px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('53', x + w/2, y + h/2);
+            }
+
+            // Brilho Shine
+            ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.3; ctx.fillRect(x + 5, y + 5, w * 0.1, h - 10); ctx.globalAlpha = 1.0;
+
+            // Vidros
+            ctx.fillStyle = '#000'; ctx.fillRect(x + 6, y + h * 0.25, w - 12, h * 0.4);
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(x + 10, y + h * 0.3); ctx.lineTo(x + w - 15, y + h * 0.3); ctx.lineTo(x + 10, y + h * 0.3 + 15); ctx.fill();
+
+            // Pneus
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x - 3, y + 15, 6, 20); ctx.fillRect(x + w - 3, y + 15, 6, 20);
+            ctx.fillRect(x - 3, y + h - 35, 6, 20); ctx.fillRect(x + w - 3, y + h - 35, 6, 20);
+
+            // Faróis
+            ctx.fillStyle = isPlayer ? '#ffff00' : '#ffffff';
+            ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
+            ctx.fillRect(x + 5, y + 2, 10, 6); ctx.fillRect(x + w - 15, y + 2, 10, 6);
+            ctx.shadowBlur = 0; ctx.restore();
+        }
+
+        function drawAnimeHeli(e) {
+            ctx.save(); ctx.translate(e.x + e.w/2, e.y + e.h/2);
+            const mainColor = level === 1 ? '#fff' : '#00f2ff';
+            ctx.fillStyle = '#000'; ctx.fillRect(-6, 20, 12, 40); ctx.fillStyle = mainColor; ctx.fillRect(-3, 22, 6, 36);
+            ctx.fillStyle = '#000'; ctx.fillRect(-28, 5, 6, 35); ctx.fillRect(22, 5, 6, 35); ctx.fillRect(-32, 35, 15, 6); ctx.fillRect(17, 35, 15, 6);
+            ctx.strokeStyle = '#000'; ctx.lineWidth = 6; ctx.fillStyle = mainColor;
+            ctx.beginPath(); ctx.ellipse(0, 0, 24, 34, 0, 0, Math.PI*2); ctx.stroke(); ctx.fill();
+            ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, -12, 15, 16, 0, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.ellipse(-6, -15, 5, 8, 0.5, 0, Math.PI*2); ctx.fill();
+            ctx.globalAlpha = 1.0;
+            ctx.save(); ctx.rotate(e.rot); ctx.fillStyle = '#000';
+            for(let a=0; a<4; a++) { ctx.rotate(Math.PI/2); ctx.fillRect(-5, -50, 10, 50); ctx.fillStyle = 'rgba(255,0,100,0.5)'; ctx.fillRect(-2, -48, 4, 46); }
+            ctx.restore(); ctx.restore();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+            const grassColor = level === 1 ? '#1a3300' : '#331a00';
+            const detailColor = level === 1 ? '#00f2ff' : '#ff0066';
+            const roadColor = level === 1 ? '#111' : '#1a0510';
+
+            ctx.fillStyle = grassColor; ctx.fillRect(0, 0, W, H);
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+            for(let i=0; i<W; i+=40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, H); ctx.stroke(); }
+            for(let j=0; j<H; j+=40) { ctx.beginPath(); ctx.moveTo(0, (j+roadOffset)%H); ctx.lineTo(W, (j+roadOffset)%H); ctx.stroke(); }
+
+            ctx.fillStyle = '#fff'; ctx.fillRect(150, 0, W - 300, H);
+            ctx.fillStyle = roadColor; ctx.fillRect(155, 0, W - 310, H);
+
+            ctx.fillStyle = detailColor; ctx.shadowBlur = 10; ctx.shadowColor = detailColor;
+            for(let i=0; i<H; i+=100) {
+                let yPos = (i + roadOffset) % (H + 100) - 100;
+                ctx.fillRect(W/2 - 4, yPos, 8, 50);
+                ctx.fillRect(W/2 - 100, yPos, 4, 30); ctx.fillRect(W/2 + 96, yPos, 4, 30);
+            }
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = 'rgba(255,255,255,0.15)';
+            speedLines.forEach(l => ctx.fillRect(l.x, l.y, 2, l.h));
+
+            roadside.forEach(s => {
+                const drawAnimeRock = (x) => {
+                    ctx.fillStyle = '#000'; ctx.fillRect(x-4, s.y-4, 38, 48);
+                    ctx.fillStyle = '#333'; ctx.fillRect(x, s.y, 30, 40);
+                    ctx.fillStyle = detailColor; ctx.fillRect(x, s.y, 4, 40);
+                };
+                drawAnimeRock(110); drawAnimeRock(W - 140);
+            });
+
+            bullets.forEach(b => { ctx.fillStyle = '#fff'; ctx.shadowBlur = 15; ctx.shadowColor = '#00f2ff'; ctx.fillRect(b.x, b.y, b.w, b.h); ctx.shadowBlur = 0; });
+            
+            enemies.forEach(e => { 
+                if(e.type === 'car') drawAnimeCar(e.x, e.y, e.w, e.h, e.color, false); 
+                else drawAnimeHeli(e); 
+            });
+
+            // Chamada do Jogador com cor Vermelha
+            drawAnimeCar(player.x, player.y, player.w, player.h, '#cc0000', true);
+
+            particles.forEach(p => { ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(p.x, p.y, p.size + 3, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill(); });
+        }
+
+        function gameLoop() { update(); draw(); if (gameActive) requestAnimationFrame(gameLoop); }
+        function startGame() { init(); gameLoop(); }
+        function gameOver() { 
+            gameActive = false; 
+            levelUpMsg.style.display = 'none'; 
+            if (engineGain) engineGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2); 
+            playSound('exp');
+            document.getElementById('msg-title').innerText = "MISSION FAILED";
+            document.getElementById('msg-text').innerText = "SCORE: " + score; 
+            messageEl.style.display = 'block'; 
+        }
+        messageEl.style.display = 'block';
+    </script>
+</body>
